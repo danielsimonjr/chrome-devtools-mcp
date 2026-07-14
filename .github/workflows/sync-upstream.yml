@@ -1,0 +1,128 @@
+name: sync-upstream
+
+# Keep this fork current with ChromeDevTools/chrome-devtools-mcp releases.
+#
+# The fork exists for ONE reason: upstream's plugin manifest launches the MCP server
+# with `npx`, which re-resolves the package against the registry on every spawn
+# (~9.3s of pure overhead here) and intermittently blows Claude Code's hard 30s
+# handshake budget. This fork commits the built `build/` output and launches it with
+# `node` instead (~4s). Everything else tracks upstream verbatim.
+#
+# This job does all the WORK (sync, rebuild, smoke-test) but deliberately does NOT
+# merge: an unattended bot must never merge its own output. It opens a PR for a human.
+
+on:
+  schedule:
+    - cron: '0 7 * * *' # daily, 07:00 UTC
+  workflow_dispatch: # allow a manual run
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Find the latest upstream release
+        id: up
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/ChromeDevTools/chrome-devtools-mcp.git
+          git fetch -q upstream --tags
+          TAG=$(git tag -l 'chrome-devtools-mcp-v*' --sort=-v:refname | head -1)
+          NEW=${TAG#chrome-devtools-mcp-v}
+          CUR=$(node -p "require('./package.json').version")
+          echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
+          echo "new=$NEW"     >> "$GITHUB_OUTPUT"
+          echo "cur=$CUR"     >> "$GITHUB_OUTPUT"
+          if [ "$NEW" = "$CUR" ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            echo "Already on $CUR — nothing to do."
+          else
+            echo "stale=true"  >> "$GITHUB_OUTPUT"
+            echo "Upstream $NEW > ours $CUR — syncing."
+          fi
+
+      - name: Merge the upstream tag
+        if: steps.up.outputs.stale == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "sync/${{ steps.up.outputs.new }}"
+          # The ONLY file that can conflict is .claude-plugin/plugin.json (upstream bumps
+          # the version + npx pin; we rewrite the launcher). It is regenerated below, so
+          # take upstream's side and move on rather than failing the merge.
+          git merge --no-edit "${{ steps.up.outputs.tag }}" || true
+          git checkout --theirs .claude-plugin/plugin.json 2>/dev/null || true
+          git add -A -- .claude-plugin/plugin.json 2>/dev/null || true
+          git diff --name-only --diff-filter=U | grep . && { echo "::error::unresolved conflicts outside plugin.json"; exit 1; } || true
+          git commit --no-edit 2>/dev/null || true
+
+      - name: Build and re-apply the fork patch
+        if: steps.up.outputs.stale == 'true'
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+          node .fork/apply-patches.mjs
+
+      - name: Smoke-test the artifact we actually ship
+        if: steps.up.outputs.stale == 'true'
+        run: |
+          set -euo pipefail
+          ENTRY=build/src/bin/chrome-devtools-mcp.js
+          test -f "$ENTRY" || { echo "::error::build did not produce $ENTRY"; exit 1; }
+          # It must speak MCP, not merely exist. Fail the sync if the handshake breaks.
+          OUT=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+                | timeout 60 node "$ENTRY" 2>/dev/null | head -1 || true)
+          echo "$OUT" | grep -q '"serverInfo"' || { echo "::error::MCP initialize handshake failed"; echo "$OUT"; exit 1; }
+          echo "handshake OK: $OUT"
+
+      - name: Commit the rebuilt bundle
+        if: steps.up.outputs.stale == 'true'
+        run: |
+          set -euo pipefail
+          # build/ is gitignored upstream -> force-add, but SCOPED to the .js the runtime
+          # needs. Never `git add -f -A`. Source maps (~14MB) and tsbuildinfo are excluded.
+          find build -name '*.js' -type f -print0 | xargs -0 git add -f --
+          git add -- .claude-plugin/plugin.json .fork/ .github/workflows/sync-upstream.yml
+          git commit -m "chore(fork): sync to upstream ${{ steps.up.outputs.new }} + node launcher
+
+Rebuilt build/ from the upstream tag and regenerated .claude-plugin/plugin.json
+so the MCP server launches via node instead of npx.
+
+MCP initialize handshake verified in CI."
+
+      - name: Open a PR (a bot must not merge its own output)
+        if: steps.up.outputs.stale == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git push -u origin "sync/${{ steps.up.outputs.new }}"
+          gh pr create \
+            --title "chore(fork): sync to upstream ${{ steps.up.outputs.new }}" \
+            --body "Automated upstream sync: **${{ steps.up.outputs.cur }} → ${{ steps.up.outputs.new }}**.
+
+- merged upstream tag \`${{ steps.up.outputs.tag }}\`
+- rebuilt \`build/\` and committed the runtime \`.js\` (maps/tsbuildinfo excluded)
+- regenerated \`.claude-plugin/plugin.json\` via \`.fork/apply-patches.mjs\` (node launcher, not npx)
+- **MCP \`initialize\` handshake verified in CI** — the artifact speaks MCP, not just \"the file exists\"
+
+Merging is left to a human by design (no unattended bot self-merge).
+
+After merge, to deploy:
+\`/plugin marketplace update chrome-devtools-plugins\` then \`/reload-plugins\`."
