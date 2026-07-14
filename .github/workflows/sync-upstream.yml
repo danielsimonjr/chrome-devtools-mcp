@@ -6,15 +6,15 @@ name: sync-upstream
 # with `npx`, which re-resolves the package against the registry on every spawn
 # (~9.3s of pure overhead here) and intermittently blows Claude Code's hard 30s
 # handshake budget. This fork commits the built `build/` output and launches it with
-# `node` instead (~4s). Everything else tracks upstream verbatim.
+# `node` instead (~4-7s). Everything else tracks upstream verbatim.
 #
 # This job does all the WORK (sync, rebuild, smoke-test) but deliberately does NOT
 # merge: an unattended bot must never merge its own output. It opens a PR for a human.
 
 on:
   schedule:
-    - cron: '0 7 * * *' # daily, 07:00 UTC
-  workflow_dispatch: # allow a manual run
+    - cron: '0 7 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -27,7 +27,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v6
         with:
@@ -42,32 +41,38 @@ jobs:
           TAG=$(git tag -l 'chrome-devtools-mcp-v*' --sort=-v:refname | head -1)
           NEW=${TAG#chrome-devtools-mcp-v}
           CUR=$(node -p "require('./package.json').version")
-          echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
-          echo "new=$NEW"     >> "$GITHUB_OUTPUT"
-          echo "cur=$CUR"     >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$TAG"
+            echo "new=$NEW"
+            echo "cur=$CUR"
+          } >> "$GITHUB_OUTPUT"
           if [ "$NEW" = "$CUR" ]; then
             echo "stale=false" >> "$GITHUB_OUTPUT"
-            echo "Already on $CUR — nothing to do."
+            echo "Already on $CUR - nothing to do."
           else
-            echo "stale=true"  >> "$GITHUB_OUTPUT"
-            echo "Upstream $NEW > ours $CUR — syncing."
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream $NEW > ours $CUR - syncing."
           fi
 
       - name: Merge the upstream tag
         if: steps.up.outputs.stale == 'true'
         run: |
           set -euo pipefail
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "sync/${{ steps.up.outputs.new }}"
-          # The ONLY file that can conflict is .claude-plugin/plugin.json (upstream bumps
-          # the version + npx pin; we rewrite the launcher). It is regenerated below, so
-          # take upstream's side and move on rather than failing the merge.
+          # The only file that can conflict is .claude-plugin/plugin.json (upstream bumps
+          # the version and re-pins npx; we rewrite the launcher). It is regenerated in the
+          # next step, so take upstream's copy and move on rather than failing the merge.
           git merge --no-edit "${{ steps.up.outputs.tag }}" || true
           git checkout --theirs .claude-plugin/plugin.json 2>/dev/null || true
-          git add -A -- .claude-plugin/plugin.json 2>/dev/null || true
-          git diff --name-only --diff-filter=U | grep . && { echo "::error::unresolved conflicts outside plugin.json"; exit 1; } || true
-          git commit --no-edit 2>/dev/null || true
+          git add -- .claude-plugin/plugin.json 2>/dev/null || true
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "::error::unresolved conflicts outside plugin.json"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+          git commit --no-edit || true
 
       - name: Build and re-apply the fork patch
         if: steps.up.outputs.stale == 'true'
@@ -84,11 +89,18 @@ jobs:
         run: |
           set -euo pipefail
           ENTRY=build/src/bin/chrome-devtools-mcp.js
-          test -f "$ENTRY" || { echo "::error::build did not produce $ENTRY"; exit 1; }
+          if [ ! -f "$ENTRY" ]; then
+            echo "::error::build did not produce $ENTRY"
+            exit 1
+          fi
           # It must speak MCP, not merely exist. Fail the sync if the handshake breaks.
-          OUT=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
-                | timeout 60 node "$ENTRY" 2>/dev/null | head -1 || true)
-          echo "$OUT" | grep -q '"serverInfo"' || { echo "::error::MCP initialize handshake failed"; echo "$OUT"; exit 1; }
+          REQ='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
+          OUT=$(printf '%s\n' "$REQ" | timeout 60 node "$ENTRY" 2>/dev/null | head -1 || true)
+          if ! echo "$OUT" | grep -q '"serverInfo"'; then
+            echo "::error::MCP initialize handshake failed"
+            echo "$OUT"
+            exit 1
+          fi
           echo "handshake OK: $OUT"
 
       - name: Commit the rebuilt bundle
@@ -98,31 +110,40 @@ jobs:
           # build/ is gitignored upstream -> force-add, but SCOPED to the .js the runtime
           # needs. Never `git add -f -A`. Source maps (~14MB) and tsbuildinfo are excluded.
           find build -name '*.js' -type f -print0 | xargs -0 git add -f --
-          git add -- .claude-plugin/plugin.json .fork/ .github/workflows/sync-upstream.yml
-          git commit -m "chore(fork): sync to upstream ${{ steps.up.outputs.new }} + node launcher
+          git add -- .claude-plugin/plugin.json
+          cat > /tmp/msg.txt <<'MSG'
+          chore(fork): sync to upstream and rebuild the node launcher
 
-Rebuilt build/ from the upstream tag and regenerated .claude-plugin/plugin.json
-so the MCP server launches via node instead of npx.
+          Rebuilt build/ from the upstream release tag and regenerated
+          .claude-plugin/plugin.json so the MCP server launches via node, not npx.
 
-MCP initialize handshake verified in CI."
+          The MCP initialize handshake was verified against the built artifact in CI.
+          MSG
+          sed -i 's/^          //' /tmp/msg.txt
+          git commit -F /tmp/msg.txt
 
       - name: Open a PR (a bot must not merge its own output)
         if: steps.up.outputs.stale == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW: ${{ steps.up.outputs.new }}
+          CUR: ${{ steps.up.outputs.cur }}
+          TAG: ${{ steps.up.outputs.tag }}
         run: |
           set -euo pipefail
-          git push -u origin "sync/${{ steps.up.outputs.new }}"
-          gh pr create \
-            --title "chore(fork): sync to upstream ${{ steps.up.outputs.new }}" \
-            --body "Automated upstream sync: **${{ steps.up.outputs.cur }} → ${{ steps.up.outputs.new }}**.
+          git push -u origin "sync/${NEW}"
+          cat > /tmp/body.md <<MSG
+          Automated upstream sync: **${CUR} -> ${NEW}**.
 
-- merged upstream tag \`${{ steps.up.outputs.tag }}\`
-- rebuilt \`build/\` and committed the runtime \`.js\` (maps/tsbuildinfo excluded)
-- regenerated \`.claude-plugin/plugin.json\` via \`.fork/apply-patches.mjs\` (node launcher, not npx)
-- **MCP \`initialize\` handshake verified in CI** — the artifact speaks MCP, not just \"the file exists\"
+          - merged upstream tag \`${TAG}\`
+          - rebuilt \`build/\` and committed the runtime \`.js\` (source maps and tsbuildinfo excluded)
+          - regenerated \`.claude-plugin/plugin.json\` via \`.fork/apply-patches.mjs\` (node launcher, not npx)
+          - **MCP \`initialize\` handshake verified in CI** - the artifact speaks MCP, not merely "the file exists"
 
-Merging is left to a human by design (no unattended bot self-merge).
+          Merging is left to a human by design: no unattended bot self-merge.
 
-After merge, to deploy:
-\`/plugin marketplace update chrome-devtools-plugins\` then \`/reload-plugins\`."
+          To deploy after merge:
+          \`/plugin marketplace update chrome-devtools-plugins\` then \`/reload-plugins\`.
+          MSG
+          sed -i 's/^          //' /tmp/body.md
+          gh pr create --title "chore(fork): sync to upstream ${NEW}" --body-file /tmp/body.md
