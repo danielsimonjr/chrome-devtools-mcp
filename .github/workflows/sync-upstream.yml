@@ -81,35 +81,52 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          npm run build
+          # MUST be `bundle`, NOT `build`. `build` (tsc + post-build) is the DEV target: it
+          # leaves bare imports (urlpattern-polyfill, core-js) to be resolved from
+          # node_modules, which do not exist in a plugin cache clone. `bundle` additionally
+          # runs rollup to inline them and deletes build/node_modules -- it is what produces
+          # the shipped npm artifact. Using `build` here ships a plugin that cannot start.
+          npm run bundle
           node .fork/apply-patches.mjs
+          if [ -d build/node_modules ]; then
+            echo "::error::build/node_modules exists -- bundle did not inline deps"
+            exit 1
+          fi
 
-      - name: Smoke-test the artifact we actually ship
+      - name: Smoke-test the artifact OUTSIDE the repo (no node_modules to fall back on)
         if: steps.up.outputs.stale == 'true'
         run: |
           set -euo pipefail
-          ENTRY=build/src/bin/chrome-devtools-mcp.js
+          # Testing inside the repo is worthless: node resolves missing packages from the
+          # top-level node_modules that `npm ci` just created, so a non-self-contained build
+          # passes. Copy build/ somewhere with no node_modules on any ancestor -- which is
+          # exactly what the plugin cache clone looks like -- and test THERE.
+          ISO=$(mktemp -d)
+          cp -r build "$ISO/build"
+          ENTRY="$ISO/build/src/bin/chrome-devtools-mcp.js"
           if [ ! -f "$ENTRY" ]; then
-            echo "::error::build did not produce $ENTRY"
+            echo "::error::bundle did not produce the entry point"
             exit 1
           fi
-          # It must speak MCP, not merely exist. Fail the sync if the handshake breaks.
           REQ='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
-          OUT=$(printf '%s\n' "$REQ" | timeout 60 node "$ENTRY" 2>/dev/null | head -1 || true)
+          OUT=$(printf '%s\n' "$REQ" | timeout 60 node "$ENTRY" 2>/tmp/err.log | head -1 || true)
           if ! echo "$OUT" | grep -q '"serverInfo"'; then
-            echo "::error::MCP initialize handshake failed"
-            echo "$OUT"
+            echo "::error::MCP initialize handshake failed from an isolated dir"
+            echo "--- stdout ---"; echo "$OUT"
+            echo "--- stderr ---"; head -20 /tmp/err.log
             exit 1
           fi
-          echo "handshake OK: $OUT"
+          echo "handshake OK (isolated): $OUT"
 
       - name: Commit the rebuilt bundle
         if: steps.up.outputs.stale == 'true'
         run: |
           set -euo pipefail
-          # build/ is gitignored upstream -> force-add, but SCOPED to the .js the runtime
-          # needs. Never `git add -f -A`. Source maps (~14MB) and tsbuildinfo are excluded.
-          find build -name '*.js' -type f -print0 | xargs -0 git add -f --
+          # build/ is gitignored upstream -> force-add, but SCOPED. Never `git add -f -A`.
+          # Everything EXCEPT source maps (~47MB, dev-only). Note this must include the
+          # non-.js runtime assets: build/src/third_party/issue-descriptions/*.md and
+          # bundled-packages.json are READ AT RUNTIME, so a `*.js`-only filter breaks the server.
+          find build -type f ! -name '*.map' -print0 | xargs -0 git add -f --
           git add -- .claude-plugin/plugin.json
           cat > /tmp/msg.txt <<'MSG'
           chore(fork): sync to upstream and rebuild the node launcher
