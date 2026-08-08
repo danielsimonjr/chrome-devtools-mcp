@@ -78,6 +78,19 @@ npm ci
 npm run build
 ```
 
+> **Do not install with `--ignore-scripts`.** `npm ci` runs `scripts/prepare.ts`, which strips a
+> conflicting global declaration out of the vendored `chrome-devtools-frontend`. The tsconfig
+> compiles ~40 of that package's `front_end/` source paths directly, so without the patch
+> `npm run typecheck` fails with
+>
+> ```
+> node_modules/chrome-devtools-frontend/front_end/models/trace/ModelImpl.ts(230,5):
+> error TS2717: Subsequent property declarations must have the same type.
+> ```
+>
+> The message names a dependency and reads like an upstream bug, which is exactly why it is worth
+> writing down: it is neither. Re-run `npm run prepare` and it drops to zero errors.
+
 ### Testing with @modelcontextprotocol/inspector
 
 ```sh
