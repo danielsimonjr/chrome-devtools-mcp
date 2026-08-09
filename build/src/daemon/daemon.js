@@ -9,8 +9,8 @@ import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { logger } from '../logger.js';
 import { Client, PipeTransport, StdioClientTransport, } from '../third_party/index.js';
+import { logger } from '../utils/logger.js';
 import { VERSION } from '../version.js';
 import { DAEMON_CLIENT_NAME, getPidFilePath, getSocketPath, INDEX_SCRIPT_PATH, IS_WINDOWS, isDaemonRunning, } from './utils.js';
 const sessionId = process.env.CHROME_DEVTOOLS_MCP_SESSION_ID || '';
@@ -133,6 +133,7 @@ async function handleRequest(msg) {
             };
         }
         else if (msg.method === 'status') {
+            await started;
             return {
                 success: true,
                 result: JSON.stringify({

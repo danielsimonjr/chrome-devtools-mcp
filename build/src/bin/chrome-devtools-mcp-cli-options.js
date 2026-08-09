@@ -157,17 +157,18 @@ export const cliOptions = {
     },
     experimentalToonFormat: {
         type: 'boolean',
-        describe: 'Whether to format structured data in text response using Token-Oriented Object Notation (requires @toon-format/toon). If running via npx, use: npx --package chrome-devtools-mcp@latest --package @toon-format/toon@latest chrome-devtools-mcp --experimentalToonFormat',
+        describe: 'Deprecated: use --experimentalDataFormat=toon instead. Whether to format structured data using TOON (requires @toon-format/toon).',
+        hidden: true,
+    },
+    experimentalDataFormat: {
+        type: 'string',
+        describe: 'Override format for structured data in text responses. Default uses built-in formatters. "toon" (requires @toon-format/toon) or "gcf" (requires @blackwell-systems/gcf) replace structured content with the specified encoding.',
+        choices: ['default', 'toon', 'gcf'],
         hidden: true,
     },
     experimentalIncludeAllPages: {
         type: 'boolean',
         describe: 'Whether to include all kinds of pages such as webviews or background pages as pages.',
-    },
-    experimentalNavigationAllowlist: {
-        type: 'boolean',
-        describe: 'Whether to enable navigation allowlist tool parameter.',
-        hidden: true,
     },
     experimentalInteropTools: {
         type: 'boolean',
@@ -313,6 +314,14 @@ export const cliOptions = {
         type: 'boolean',
         describe: 'If true, redacts some of the network headers considered sensitive before returning to the client.',
         default: false,
+    },
+    allowUnrestrictedPaths: {
+        type: 'boolean',
+        default: false,
+        describe: 'If set, disables the default path restriction that applies when the MCP client does not negotiate ' +
+            'the roots capability. By default, file-writing tools are restricted to the OS temp directory when ' +
+            'no roots are configured. Use this only when connecting a trusted local client that does not implement ' +
+            'MCP roots and requires access to paths outside the temp directory.',
     },
 };
 export function parseArguments(version, argv = process.argv, env = process.env) {

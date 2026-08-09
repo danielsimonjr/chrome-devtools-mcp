@@ -7,8 +7,8 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { logger } from './logger.js';
 import { puppeteer } from './third_party/index.js';
+import { logger } from './utils/logger.js';
 let browser;
 let browserMode;
 function makeTargetFilter(enableExtensions = false) {

@@ -6,7 +6,7 @@
 import process from 'node:process';
 import readline from 'node:readline';
 import { parseArgs } from 'node:util';
-import { logger, flushLogs, saveLogsToFile } from '../../logger.js';
+import { logger, flushLogs, saveLogsToFile } from '../../utils/logger.js';
 import { WatchdogMessageType } from '../types.js';
 import { ClearcutSender } from './ClearcutSender.js';
 function parseWatchdogArgs() {

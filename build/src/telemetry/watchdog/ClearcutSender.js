@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import crypto from 'node:crypto';
-import { logger } from '../../logger.js';
+import { logger } from '../../utils/logger.js';
 const MAX_BUFFER_SIZE = 1000;
 const DEFAULT_CLEARCUT_ENDPOINT = 'https://play.googleapis.com/log?format=json_proto';
 const DEFAULT_FLUSH_INTERVAL_MS = 15 * 60 * 1000;

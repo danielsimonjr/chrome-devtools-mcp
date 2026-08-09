@@ -142,7 +142,7 @@ describe('emulation', () => {
         it('applies cpu throttling to secondary session', async () => {
             await withMcpContext(async (response, context) => {
                 const mcpPage = context.getSelectedMcpPage();
-                const universe = context.getDevToolsUniverse(mcpPage);
+                const universe = mcpPage.devtoolsUniverse;
                 assert.ok(universe);
                 const sendSpy = mock.method(universe.session, 'send');
                 await emulate.handler({
@@ -160,7 +160,7 @@ describe('emulation', () => {
         });
         it('disables cpu throttling', async () => {
             await withMcpContext(async (response, context) => {
-                await context.emulate({
+                await context.getSelectedMcpPage().emulate({
                     cpuThrottlingRate: 4,
                 });
                 await emulate.handler({
@@ -251,7 +251,7 @@ describe('emulation', () => {
         });
         it('emulates viewport', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto(server.baseUrl + '/viewport');
                 await emulate.handler({
                     params: {
@@ -284,7 +284,7 @@ describe('emulation', () => {
         });
         it('clears viewport override when viewport is set to null', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 // First set a viewport
                 await emulate.handler({
                     params: {
@@ -312,7 +312,7 @@ describe('emulation', () => {
                 }, response, context);
                 assert.strictEqual(context.getSelectedMcpPage().viewport, null);
                 // Somehow reset of the viewport seems to be async.
-                await context.getSelectedPptrPage().waitForFunction(() => {
+                await context.getSelectedMcpPage().pptrPage.waitForFunction(() => {
                     return window.innerWidth !== 400 && window.innerHeight !== 400;
                 });
             });
@@ -332,7 +332,7 @@ describe('emulation', () => {
                 const page = await context.newPage();
                 context.selectPage(page);
                 assert.strictEqual(context.getSelectedMcpPage().viewport, null);
-                assert.ok(await context.getSelectedPptrPage().evaluate(() => {
+                assert.ok(await context.getSelectedMcpPage().pptrPage.evaluate(() => {
                     return window.innerWidth !== 400 && window.innerHeight !== 400;
                 }));
             });
@@ -348,7 +348,7 @@ describe('emulation', () => {
                     page: context.getSelectedMcpPage(),
                 }, response, context);
                 assert.strictEqual(context.getSelectedMcpPage().userAgent, 'MyUA');
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const ua = await page.evaluate(() => navigator.userAgent);
                 assert.strictEqual(ua, 'MyUA');
             });
@@ -369,7 +369,7 @@ describe('emulation', () => {
                     page: context.getSelectedMcpPage(),
                 }, response, context);
                 assert.strictEqual(context.getSelectedMcpPage().userAgent, 'UA2');
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const ua = await page.evaluate(() => navigator.userAgent);
                 assert.strictEqual(ua, 'UA2');
             });
@@ -388,7 +388,7 @@ describe('emulation', () => {
                     page: context.getSelectedMcpPage(),
                 }, response, context);
                 assert.strictEqual(context.getSelectedMcpPage().userAgent, null);
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const ua = await page.evaluate(() => navigator.userAgent);
                 assert.notStrictEqual(ua, 'MyUA');
                 assert.ok(ua.length > 0);
@@ -406,7 +406,7 @@ describe('emulation', () => {
                 const page = await context.newPage();
                 context.selectPage(page);
                 assert.strictEqual(context.getSelectedMcpPage().userAgent, null);
-                assert.ok(await context.getSelectedPptrPage().evaluate(() => {
+                assert.ok(await context.getSelectedMcpPage().pptrPage.evaluate(() => {
                     return navigator.userAgent !== 'MyUA';
                 }));
             });
@@ -421,7 +421,7 @@ describe('emulation', () => {
                 res.end('<main>Headers Test</main>');
             });
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await emulate.handler({
                     params: {
                         extraHttpHeaders: { 'X-Custom-Header': 'test-value' },
@@ -440,7 +440,7 @@ describe('emulation', () => {
                 res.end('<main>Headers Clear</main>');
             });
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 // Set headers first
                 await emulate.handler({
                     params: {
@@ -473,7 +473,7 @@ describe('emulation', () => {
                 res.end('<main>Page Two</main>');
             });
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await emulate.handler({
                     params: {
                         extraHttpHeaders: { 'X-Persist': 'yes' },
@@ -533,7 +533,7 @@ describe('emulation', () => {
                     page: context.getSelectedMcpPage(),
                 }, response, context);
                 assert.strictEqual(context.getSelectedMcpPage().colorScheme, 'dark');
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const scheme = await page.evaluate(() => window.matchMedia('(prefers-color-scheme: dark)').matches
                     ? 'dark'
                     : 'light');
@@ -556,7 +556,7 @@ describe('emulation', () => {
                     page: context.getSelectedMcpPage(),
                 }, response, context);
                 assert.strictEqual(context.getSelectedMcpPage().colorScheme, 'light');
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const scheme = await page.evaluate(() => window.matchMedia('(prefers-color-scheme: light)').matches
                     ? 'light'
                     : 'dark');
@@ -565,7 +565,7 @@ describe('emulation', () => {
         });
         it('resets color scheme when set to auto', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const initial = await page.evaluate(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
                 await emulate.handler({
                     params: {

@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { logger } from '../logger.js';
+import { logger } from '../utils/logger.js';
 import { ClearcutLogger } from './ClearcutLogger.js';
 import { ErrorCode } from './errors.js';
 const STATE_FILE_NAME = 'telemetry_state.json';

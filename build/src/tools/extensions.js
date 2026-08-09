@@ -54,7 +54,7 @@ export const listExtensions = defineTool({
     schema: {},
     blockedByDialog: false,
     verifyFilesSchema: [],
-    handler: async (_request, response, _context) => {
+    handler: async (_request, response) => {
         response.setListExtensions();
     },
 });

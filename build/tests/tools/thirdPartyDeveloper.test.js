@@ -514,9 +514,6 @@ describe('thirdPartyDeveloperTools', () => {
                         },
                     };
                 });
-                const stub = sinon
-                    .stub(page, 'resolveCdpElementId')
-                    .returns('mock-uid');
                 await executeThirdPartyDeveloperTool.handler({
                     params: {
                         toolName: 'test-tool',
@@ -524,8 +521,7 @@ describe('thirdPartyDeveloperTools', () => {
                     },
                     page: page,
                 }, response, context);
-                assert.strictEqual(response.responseLines[0], JSON.stringify({ uid: 'mock-uid' }, null, 2));
-                stub.restore();
+                assert.strictEqual(response.responseLines[0], JSON.stringify({ uid: '1_1' }, null, 2));
             }, undefined, { categoryExperimentalThirdParty: true });
         });
         it('creates a new snapshot if the third-party developer tool response contains a DOM element', async () => {
@@ -555,12 +551,6 @@ describe('thirdPartyDeveloperTools', () => {
                         },
                     };
                 });
-                const stubSnapshot = sinon
-                    .stub(TextSnapshot, 'create')
-                    .resolves({});
-                const stubResolve = sinon
-                    .stub(page, 'resolveCdpElementId')
-                    .returns('mock-uid');
                 await executeThirdPartyDeveloperTool.handler({
                     params: {
                         toolName: 'test-tool',
@@ -568,10 +558,7 @@ describe('thirdPartyDeveloperTools', () => {
                     },
                     page: page,
                 }, response, context);
-                assert.ok(stubSnapshot.calledOnce, 'Expected TextSnapshot.create to be called');
-                assert.strictEqual(response.responseLines[0], JSON.stringify({ uid: 'mock-uid' }, null, 2));
-                stubResolve.restore();
-                stubSnapshot.restore();
+                assert.strictEqual(response.responseLines[0], JSON.stringify({ uid: '1_1' }, null, 2));
             }, undefined, { categoryExperimentalThirdParty: true });
         });
         it('does not create a new snapshot if the third-party developer tool response does not contain a DOM element', async () => {

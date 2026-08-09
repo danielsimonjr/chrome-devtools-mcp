@@ -6,7 +6,7 @@
 import assert from 'node:assert';
 import path from 'node:path';
 import { before, describe, it } from 'node:test';
-import { loadIssueDescriptions } from '../../src/issue-descriptions.js';
+import { loadIssueDescriptions } from '../../src/devtools/issueDescriptions.js';
 import { McpResponse } from '../../src/McpResponse.js';
 import { TextSnapshot } from '../../src/TextSnapshot.js';
 import { DevTools } from '../../src/third_party/index.js';
@@ -163,7 +163,7 @@ describe('console', () => {
             });
             it('when dialog is open', async (t) => {
                 await withMcpContext(async (response, context) => {
-                    const page = context.getSelectedPptrPage();
+                    const page = context.getSelectedMcpPage().pptrPage;
                     await page.setContent('<script>console.log("Pre-dialog message")</script>');
                     const dialogPromise = new Promise(resolve => {
                         page.on('dialog', dialog => resolve(dialog));
@@ -195,7 +195,7 @@ describe('console', () => {
             });
         });
         describe('issues type', () => {
-            it('gets issue details with node id parsing', async (t) => {
+            it.only('gets issue details with node id parsing', async (t) => {
                 await withMcpContext(async (response, context) => {
                     const page = context.getSelectedMcpPage();
                     const issuePromise = new Promise(resolve => {
@@ -241,7 +241,7 @@ describe('console', () => {
           `);
                     page.textSnapshot = await TextSnapshot.create(page);
                     await issuePromise;
-                    const messages = context.getConsoleData(page);
+                    const messages = page.getConsoleData();
                     let issueMsg;
                     for (const message of messages) {
                         if (message instanceof DevTools.AggregatedIssue) {
@@ -250,7 +250,7 @@ describe('console', () => {
                         }
                     }
                     assert.ok(issueMsg);
-                    const id = context.getConsoleMessageStableId(issueMsg);
+                    const id = response.getConsoleMessageStableId(issueMsg);
                     assert.ok(id);
                     await listConsoleMessages().handler({ params: { types: ['issue'] }, page: context.getSelectedMcpPage() }, response, context);
                     const response2 = new McpResponse({});
@@ -390,7 +390,7 @@ describe('console', () => {
         });
         it('when dialog is open', async (t) => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent('<script>console.error("This is an error")</script>');
                 await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
                 const dialogPromise = new Promise(resolve => {

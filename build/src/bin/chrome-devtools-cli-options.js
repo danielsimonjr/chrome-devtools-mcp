@@ -298,6 +298,18 @@ export const commands = {
                 description: 'The ID for the class, obtained from details.',
                 required: true,
             },
+            filterName: {
+                name: 'filterName',
+                type: 'string',
+                description: 'An optional filter to apply to the nodes.',
+                required: false,
+                enum: [
+                    'objectsRetainedByDetachedDomNodes',
+                    'objectsRetainedByConsole',
+                    'objectsRetainedByEventHandlers',
+                    'objectsRetainedByContexts',
+                ],
+            },
             pageIdx: {
                 name: 'pageIdx',
                 type: 'number',
@@ -321,6 +333,18 @@ export const commands = {
                 type: 'string',
                 description: 'A path to a .heapsnapshot file to read.',
                 required: true,
+            },
+            filterName: {
+                name: 'filterName',
+                type: 'string',
+                description: 'An optional filter to apply to the aggregates.',
+                required: false,
+                enum: [
+                    'objectsRetainedByDetachedDomNodes',
+                    'objectsRetainedByConsole',
+                    'objectsRetainedByEventHandlers',
+                    'objectsRetainedByContexts',
+                ],
             },
             pageIdx: {
                 name: 'pageIdx',
@@ -703,7 +727,7 @@ export const commands = {
                 type: 'string',
                 description: 'Whether to auto accept or beforeunload dialogs triggered by this navigation. Default is accept.',
                 required: false,
-                enum: ['accept', 'decline'],
+                enum: ['accept', 'dismiss'],
             },
             initScript: {
                 name: 'initScript',
