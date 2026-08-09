@@ -39,7 +39,7 @@ describe('slim', () => {
                 params: { url: 'data:text/html,<div>Hello MCP</div>' },
                 page: context.getSelectedMcpPage(),
             }, response, context);
-            const page = context.getSelectedPptrPage();
+            const page = context.getSelectedMcpPage().pptrPage;
             assert.equal(await page.evaluate(() => document.querySelector('div')?.textContent), 'Hello MCP');
             assert(!response.includePages);
             t.assert.snapshot(response.responseLines.join('\n'));
@@ -48,7 +48,7 @@ describe('slim', () => {
     it('with default options', async () => {
         await withMcpContext(async (response, context) => {
             const fixture = screenshots.basic;
-            const page = context.getSelectedPptrPage();
+            const page = context.getSelectedMcpPage().pptrPage;
             await page.setContent(fixture.html);
             await screenshot.handler({ params: { format: 'png' }, page: context.getSelectedMcpPage() }, response, context);
             assert(path.isAbsolute(response.responseLines.at(0)));

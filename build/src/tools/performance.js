@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import zlib from 'node:zlib';
-import { logger } from '../logger.js';
 import { zod, DevTools } from '../third_party/index.js';
 import { parseRawTraceBuffer, traceResultIsSuccess, } from '../trace-processing/parse.js';
+import { logger } from '../utils/logger.js';
 import { ToolCategory } from './categories.js';
 import { definePageTool } from './ToolDefinition.js';
 const filePathSchema = zod
@@ -148,7 +148,7 @@ async function stopTracingAndAppendOutput(page, response, context, filePath) {
                     });
                 });
             }
-            const file = await context.saveFile(dataToWrite, filePath, filePath.endsWith('.gz') ? '.json.gz' : '.json');
+            const file = await context.saveFile(dataToWrite, filePath, filePath.endsWith('.gz') ? '.gz' : '.json');
             response.appendResponseLine(`The raw trace data was saved to ${file.filename}.`);
         }
         const result = await parseRawTraceBuffer(traceEventsBuffer, {

@@ -3,7 +3,6 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { logger } from './logger.js';
 import { McpResponse } from './McpResponse.js';
 import { SlimMcpResponse } from './SlimMcpResponse.js';
 import { ClearcutLogger } from './telemetry/ClearcutLogger.js';
@@ -11,6 +10,7 @@ import { bucketizeLatency } from './telemetry/transformation.js';
 import { zod } from './third_party/index.js';
 import { labels, OFF_BY_DEFAULT_CATEGORIES } from './tools/categories.js';
 import { pageIdSchema } from './tools/ToolDefinition.js';
+import { logger } from './utils/logger.js';
 export function buildFlag(category) {
     return `category${category.charAt(0).toUpperCase() + category.slice(1)}`;
 }
@@ -142,11 +142,13 @@ export class ToolHandler {
             logger?.(`${this.tool.name} request: ${JSON.stringify(params, null, '  ')}`);
             const context = await this.getContext();
             logger?.(`${this.tool.name} context: resolved`);
-            await context.detectOpenDevToolsWindows();
             const response = this.serverArgs.slim
                 ? new SlimMcpResponse(this.serverArgs)
                 : new McpResponse(this.serverArgs);
             response.setRedactNetworkHeaders(this.serverArgs.redactNetworkHeaders);
+            if (context.consumeReconnectNotice()) {
+                response.setReconnectNotice();
+            }
             try {
                 if (this.tool.verifyFilesSchema) {
                     for (const key of this.tool.verifyFilesSchema) {
@@ -179,7 +181,15 @@ export class ToolHandler {
             catch (err) {
                 response.setError(err);
             }
-            const { content, structuredContent } = await response.handle(this.tool.name, context, this.serverArgs.experimentalToonFormat ?? false);
+            // Resolve data format: --experimentalDataFormat takes precedence, fall back to legacy --experimentalToonFormat
+            let dataFormat = 'default';
+            if (this.serverArgs.experimentalDataFormat) {
+                dataFormat = this.serverArgs.experimentalDataFormat;
+            }
+            else if (this.serverArgs.experimentalToonFormat) {
+                dataFormat = 'toon';
+            }
+            const { content, structuredContent } = await response.handle(this.tool.name, context, dataFormat);
             const result = {
                 content,
             };

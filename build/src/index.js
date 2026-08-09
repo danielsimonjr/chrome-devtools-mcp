@@ -4,15 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { ensureBrowserConnected, ensureBrowserLaunched } from './browser.js';
-import { loadIssueDescriptions } from './issue-descriptions.js';
-import { logger } from './logger.js';
+import { loadIssueDescriptions } from './devtools/issueDescriptions.js';
 import { McpContext } from './McpContext.js';
-import { Mutex } from './Mutex.js';
 import { ClearcutLogger } from './telemetry/ClearcutLogger.js';
 import { FilePersistence } from './telemetry/persistence.js';
 import { McpServer, SetLevelRequestSchema, ListRootsResultSchema, RootsListChangedNotificationSchema, } from './third_party/index.js';
 import { ToolHandler } from './ToolHandler.js';
 import { createTools } from './tools/tools.js';
+import { logger } from './utils/logger.js';
+import { Mutex } from './utils/Mutex.js';
 import { VERSION } from './version.js';
 export { buildFlag } from './ToolHandler.js';
 export async function createMcpServer(serverArgs, options) {
@@ -56,6 +56,12 @@ export async function createMcpServer(serverArgs, options) {
             server.server.setNotificationHandler(RootsListChangedNotificationSchema, () => {
                 void updateRoots();
             });
+        }
+        else if (!serverArgs.allowUnrestrictedPaths) {
+            console.warn('[chrome-devtools-mcp] The connecting client did not negotiate the MCP roots ' +
+                'capability. File-writing tools will be restricted to the OS temp directory. ' +
+                'To restore the previous unrestricted behavior, start the server with ' +
+                '--allow-unrestricted-paths.');
         }
     };
     let context;
@@ -110,6 +116,9 @@ export async function createMcpServer(serverArgs, options) {
                 performanceCrux: serverArgs.performanceCrux,
                 allowList: allowlist,
                 blocklist: blocklist,
+                allowUnrestrictedPaths: serverArgs.allowUnrestrictedPaths,
+                // Surfaces a one-time note in the next response after a reconnect.
+                reconnected: context !== undefined,
             });
             await updateRoots();
         }

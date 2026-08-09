@@ -26,6 +26,8 @@ describe('cli args parsing', () => {
         usageStatistics: true,
         'redact-network-headers': false,
         redactNetworkHeaders: false,
+        'allow-unrestricted-paths': false,
+        allowUnrestrictedPaths: false,
     };
     it('parses with default args', async () => {
         const args = parseArguments('1.0.0', ['node', 'main.js'], {});

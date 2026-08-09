@@ -73,6 +73,7 @@ export async function withBrowser(cb, options = {}) {
 export async function withMcpContext(cb, options = {}, args = {}) {
     await withBrowser(async (browser) => {
         TextSnapshot.resetCounter();
+        McpContext.resetPageIdsForTesting();
         const response = new McpResponse(args);
         if (context) {
             context.dispose();
@@ -82,6 +83,7 @@ export async function withMcpContext(cb, options = {}, args = {}) {
             performanceCrux: options.performanceCrux ?? true,
             allowList: options.allowedUrlPattern,
             blocklist: options.blockedUrlPattern,
+            allowUnrestrictedPaths: options.allowUnrestrictedPaths ?? false,
         }, Locator);
         response.setPage(context.getSelectedMcpPage());
         await cb(response, context);

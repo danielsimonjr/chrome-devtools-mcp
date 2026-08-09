@@ -47,7 +47,7 @@ describe('script', () => {
         });
         it('work for complex objects', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<script src="./scripts.js"></script> `);
                 await evaluateScript().handler({
                     params: {
@@ -65,7 +65,7 @@ describe('script', () => {
         });
         it('work for scripts that trigger dialogs', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<button id="test">test</button>`);
                 await evaluateScript().handler({
                     params: {
@@ -81,7 +81,7 @@ describe('script', () => {
         });
         it('work for scripts that trigger dialogs and dismiss them', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<button id="test">test</button>`);
                 await evaluateScript().handler({
                     params: {
@@ -97,7 +97,7 @@ describe('script', () => {
         });
         it('work for scripts that trigger prompts and fill them', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<button id="test">test</button>`);
                 await evaluateScript().handler({
                     params: {
@@ -113,7 +113,7 @@ describe('script', () => {
         });
         it('work for async functions', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<script src="./scripts.js"></script> `);
                 await evaluateScript().handler({
                     params: {
@@ -129,7 +129,7 @@ describe('script', () => {
         });
         it('work with one argument', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<button id="test">test</button>`);
                 context.getSelectedMcpPage().textSnapshot = await TextSnapshot.create(context.getSelectedMcpPage());
                 await evaluateScript().handler({
@@ -146,7 +146,7 @@ describe('script', () => {
         });
         it('work with multiple args', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<button id="test">test</button>`);
                 context.getSelectedMcpPage().textSnapshot = await TextSnapshot.create(context.getSelectedMcpPage());
                 await evaluateScript().handler({
@@ -165,7 +165,7 @@ describe('script', () => {
             server.addHtmlRoute('/iframe', html `<main><button>I am iframe button</button></main>`);
             server.addHtmlRoute('/main', html `<iframe src="/iframe"></iframe>`);
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto(server.getRoute('/main'));
                 context.getSelectedMcpPage().textSnapshot = await TextSnapshot.create(context.getSelectedMcpPage());
                 await evaluateScript().handler({

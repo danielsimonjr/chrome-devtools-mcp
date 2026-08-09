@@ -24,7 +24,7 @@ describe('extension', () => {
             // Install the extension
             await installExtension.handler({ params: { path: EXTENSION_PATH } }, response, context);
             const extensionId = extractExtensionId(response);
-            const page = context.getSelectedPptrPage();
+            const page = context.getSelectedMcpPage().pptrPage;
             await page.goto('chrome://extensions');
             const element = await page.waitForSelector(`extensions-manager >>> extensions-item[id="${extensionId}"]`);
             assert.ok(element, `Extension with ID "${extensionId}" should be visible on chrome://extensions`);

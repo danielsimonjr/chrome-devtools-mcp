@@ -84,7 +84,7 @@ export const lighthouseAudit = definePageTool({
             }
         }
         finally {
-            await context.restoreEmulation(page);
+            await page.restoreEmulation();
         }
         const lhr = result.lhr;
         const reportPaths = [];

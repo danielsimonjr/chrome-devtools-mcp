@@ -3,7 +3,7 @@
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { logger } from './logger.js';
+import { logger } from './utils/logger.js';
 export class WaitForHelper {
     #abortController = new AbortController();
     #page;
@@ -112,15 +112,24 @@ export class WaitForHelper {
         }
         if (options?.handleDialog) {
             const dialogHandler = (dialog) => {
-                this.#dialogOpened = true;
-                if (options.handleDialog === 'dismiss') {
-                    void dialog.dismiss();
-                }
-                else if (options.handleDialog === 'accept') {
-                    void dialog.accept();
+                let actionToTake;
+                if (typeof options.handleDialog === 'object') {
+                    actionToTake = options.handleDialog[dialog.type()];
                 }
                 else {
-                    void dialog.accept(options.handleDialog);
+                    actionToTake = options.handleDialog;
+                }
+                if (actionToTake) {
+                    this.#dialogOpened = true;
+                    if (actionToTake === 'dismiss') {
+                        void dialog.dismiss();
+                    }
+                    else if (actionToTake === 'accept') {
+                        void dialog.accept();
+                    }
+                    else {
+                        void dialog.accept(actionToTake);
+                    }
                 }
             };
             this.#page.on('dialog', dialogHandler);
@@ -170,6 +179,7 @@ export class WaitForHelper {
             ...(urlAfterAction !== this.#initialUrl
                 ? { navigatedToUrl: urlAfterAction }
                 : {}),
+            dialogHandled: this.#dialogOpened,
         };
     }
 }

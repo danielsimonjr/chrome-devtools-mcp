@@ -5,7 +5,7 @@
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { logger } from '../logger.js';
+import { logger } from '../utils/logger.js';
 export class WatchdogClient {
     #childProcess;
     constructor(config, options) {

@@ -19,7 +19,7 @@ describe('snapshot', () => {
     describe('browser_wait_for', () => {
         it('should work', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<main><span>Hello</span><span> </span><div>World</div></main>`);
                 await waitFor.handler({
                     params: {
@@ -33,7 +33,7 @@ describe('snapshot', () => {
         });
         it('should work with any-match array', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<main><span>Status</span><div>Error</div></main>`);
                 await waitFor.handler({
                     params: {
@@ -47,7 +47,7 @@ describe('snapshot', () => {
         });
         it('should work with any-match array when element shows up later', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const handlePromise = waitFor.handler({
                     params: {
                         text: ['Complete', 'Error'],
@@ -64,7 +64,7 @@ describe('snapshot', () => {
         });
         it('should work with element that show up later', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 const handlePromise = waitFor.handler({
                     params: {
                         text: ['Hello World'],
@@ -79,7 +79,7 @@ describe('snapshot', () => {
         });
         it('should work with aria elements', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<main><h1>Header</h1><div>Text</div></main>`);
                 await waitFor.handler({
                     params: {
@@ -93,7 +93,7 @@ describe('snapshot', () => {
         });
         it('should work with iframe content', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.setContent(html `<h1>Top level</h1>
             <iframe srcdoc="<p>Hello iframe</p>"></iframe>`);
                 await waitFor.handler({

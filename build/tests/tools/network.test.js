@@ -23,8 +23,8 @@ describe('network', () => {
             server.addHtmlRoute('/two', html `<main>Second</main>`);
             server.addHtmlRoute('/three', html `<main>Third</main>`);
             await withMcpContext(async (response, context) => {
-                await context.setUpNetworkCollectorForTesting();
-                const page = context.getSelectedPptrPage();
+                await context.getSelectedMcpPage().setUpNetworkCollectorForTesting();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto(server.getRoute('/one'));
                 await page.goto(server.getRoute('/two'));
                 await page.goto(server.getRoute('/three'));
@@ -41,8 +41,8 @@ describe('network', () => {
             server.addHtmlRoute('/two', html `<main>Second</main>`);
             server.addHtmlRoute('/three', html `<main>Third</main>`);
             await withMcpContext(async (response, context) => {
-                await context.setUpNetworkCollectorForTesting();
-                const page = context.getSelectedPptrPage();
+                await context.getSelectedMcpPage().setUpNetworkCollectorForTesting();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto(server.getRoute('/one'));
                 await page.goto(server.getRoute('/two'));
                 await page.goto(server.getRoute('/three'));
@@ -68,8 +68,8 @@ describe('network', () => {
         </script>`);
             server.addHtmlRoute('/redirected-page', html `<main>I was redirected 2 times</main>`);
             await withMcpContext(async (response, context) => {
-                await context.setUpNetworkCollectorForTesting();
-                const page = context.getSelectedPptrPage();
+                await context.getSelectedMcpPage().setUpNetworkCollectorForTesting();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto(server.getRoute('/redirect'), {
                     waitUntil: 'networkidle0',
                 });
@@ -87,7 +87,7 @@ describe('network', () => {
     describe('network_get_request', () => {
         it('attaches request', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto('data:text/html,<div>Hello MCP</div>');
                 await getNetworkRequest.handler({ params: { reqid: 1 }, page: context.getSelectedMcpPage() }, response, context);
                 assert.equal(response.attachedNetworkRequestId, 1);
@@ -95,7 +95,7 @@ describe('network', () => {
         });
         it('should not add the request list', async () => {
             await withMcpContext(async (response, context) => {
-                const page = context.getSelectedPptrPage();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto('data:text/html,<div>Hello MCP</div>');
                 await getNetworkRequest.handler({ params: { reqid: 1 }, page: context.getSelectedMcpPage() }, response, context);
                 assert(!response.includeNetworkRequests);
@@ -106,8 +106,8 @@ describe('network', () => {
             server.addHtmlRoute('/two', html `<main>Second</main>`);
             server.addHtmlRoute('/three', html `<main>Third</main>`);
             await withMcpContext(async (response, context) => {
-                await context.setUpNetworkCollectorForTesting();
-                const page = context.getSelectedPptrPage();
+                await context.getSelectedMcpPage().setUpNetworkCollectorForTesting();
+                const page = context.getSelectedMcpPage().pptrPage;
                 await page.goto(server.getRoute('/one'));
                 await page.goto(server.getRoute('/two'));
                 await page.goto(server.getRoute('/three'));

@@ -9,10 +9,10 @@ import sinon from 'sinon';
 import { parseArguments } from '../src/bin/chrome-devtools-mcp-cli-options.js';
 import { McpContext } from '../src/McpContext.js';
 import { McpPage } from '../src/McpPage.js';
-import { Mutex } from '../src/Mutex.js';
 import { zod } from '../src/third_party/index.js';
 import { ToolHandler } from '../src/ToolHandler.js';
 import { ToolCategory } from '../src/tools/categories.js';
+import { Mutex } from '../src/utils/Mutex.js';
 describe('ToolHandler', () => {
     afterEach(() => {
         sinon.restore();
@@ -37,7 +37,6 @@ describe('ToolHandler', () => {
         const mockContext = sinon.createStubInstance(McpContext);
         const mockPage = sinon.createStubInstance(McpPage);
         mockContext.getSelectedMcpPage.returns(mockPage);
-        mockContext.detectOpenDevToolsWindows.resolves();
         const toolMutex = new Mutex();
         const serverArgs = parseArguments('1.0.0', ['node', 'script.js'], {
             CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
@@ -65,7 +64,6 @@ describe('ToolHandler', () => {
             },
         };
         const mockContext = sinon.createStubInstance(McpContext);
-        mockContext.detectOpenDevToolsWindows.resolves();
         const toolMutex = new Mutex();
         const serverArgs = parseArguments('1.0.0', ['node', 'script.js'], {
             CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
@@ -97,7 +95,6 @@ describe('ToolHandler', () => {
             },
         };
         const mockContext = sinon.createStubInstance(McpContext);
-        mockContext.detectOpenDevToolsWindows.resolves();
         const toolMutex = new Mutex();
         const serverArgs = parseArguments('1.0.0', ['node', 'script.js'], {
             CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',

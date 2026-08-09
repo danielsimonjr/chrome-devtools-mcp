@@ -3,8 +3,8 @@
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { logger } from '../logger.js';
 import { DevTools } from '../third_party/index.js';
+import { logger } from '../utils/logger.js';
 const engine = DevTools.TraceEngine.TraceModel.Model.createWithAllHandlers();
 export function traceResultIsSuccess(x) {
     return 'parsedTrace' in x;

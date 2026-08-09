@@ -160,6 +160,9 @@ describe('snapshotFormatter', () => {
             idToNode: new Map(),
             hasSelectedElement: true,
             verbose: false,
+            resolveCdpElementId() {
+                return undefined;
+            },
         });
         const formatted = formatter.toString();
         t.assert.snapshot(formatted);
@@ -191,6 +194,9 @@ describe('snapshotFormatter', () => {
             idToNode: new Map(),
             hasSelectedElement: true,
             verbose: true,
+            resolveCdpElementId() {
+                return undefined;
+            },
         });
         const formatted = formatter.toString();
         t.assert.snapshot(formatted);
@@ -223,6 +229,9 @@ describe('snapshotFormatter', () => {
             hasSelectedElement: true,
             selectedElementUid: '1_1',
             verbose: false,
+            resolveCdpElementId() {
+                return '1_1';
+            },
         });
         const formatted = formatter.toString();
         t.assert.snapshot(formatted);

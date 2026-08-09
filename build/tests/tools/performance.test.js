@@ -31,7 +31,7 @@ describe('performance', () => {
         it('starts a trace recording', async () => {
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(false);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 const startTracingStub = sinon.stub(selectedPage.tracing, 'start');
                 await startTrace.handler({
                     params: { reload: true, autoStop: false },
@@ -46,7 +46,7 @@ describe('performance', () => {
         });
         it('can navigate to about:blank and record a page reload', async () => {
             await withMcpContext(async (response, context) => {
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 sinon.stub(selectedPage, 'url').callsFake(() => 'https://www.test.com');
                 const gotoStub = sinon.stub(selectedPage, 'goto');
                 const startTracingStub = sinon.stub(selectedPage.tracing, 'start');
@@ -70,7 +70,7 @@ describe('performance', () => {
         it('can autostop and store a recording', async () => {
             const rawData = loadTraceAsBuffer('basic-trace.json.gz');
             await withMcpContext(async (response, context) => {
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 sinon.stub(selectedPage, 'url').callsFake(() => 'https://www.test.com');
                 sinon.stub(selectedPage, 'goto').callsFake(() => Promise.resolve(null));
                 const startTracingStub = sinon.stub(selectedPage.tracing, 'start');
@@ -104,7 +104,7 @@ describe('performance', () => {
         it('errors if a recording is already active', async () => {
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(true);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 const startTracingStub = sinon.stub(selectedPage.tracing, 'start');
                 await startTrace.handler({
                     params: { reload: true, autoStop: false },
@@ -123,7 +123,7 @@ describe('performance', () => {
             const expectedCompressedData = zlib.gzipSync(rawData);
             await withMcpContext(async (response, context) => {
                 const filePath = 'test-trace.json.gz';
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 sinon.stub(selectedPage, 'url').callsFake(() => 'https://www.test.com');
                 sinon.stub(selectedPage, 'goto').callsFake(() => Promise.resolve(null));
                 sinon.stub(selectedPage.tracing, 'start');
@@ -194,7 +194,7 @@ describe('performance', () => {
         it('does nothing if the trace is not running and does not error', async () => {
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(false);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 const stopTracingStub = sinon.stub(selectedPage.tracing, 'stop');
                 await stopTrace.handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
                 sinon.assert.notCalled(stopTracingStub);
@@ -205,7 +205,7 @@ describe('performance', () => {
             const rawData = loadTraceAsBuffer('basic-trace.json.gz');
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(true);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 const stopTracingStub = sinon
                     .stub(selectedPage.tracing, 'stop')
                     .callsFake(async () => {
@@ -220,7 +220,7 @@ describe('performance', () => {
         it('throws an error if parsing the trace buffer fails', async () => {
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(true);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 sinon
                     .stub(selectedPage.tracing, 'stop')
                     .returns(Promise.resolve(undefined));
@@ -232,7 +232,7 @@ describe('performance', () => {
             await withMcpContext(async (response, context) => {
                 const filePath = 'test-trace.json';
                 context.setIsRunningPerformanceTrace(true);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 const stopTracingStub = sinon
                     .stub(selectedPage.tracing, 'stop')
                     .resolves(rawData);
@@ -250,7 +250,7 @@ describe('performance', () => {
             const rawData = loadTraceAsBuffer('basic-trace.json.gz');
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(true);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 sinon.stub(selectedPage.tracing, 'stop').resolves(rawData);
                 await stopTrace.handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
                 const cruxEndpoint = 'https://chromeuxreport.googleapis.com/v1/records:queryRecord';
@@ -264,7 +264,7 @@ describe('performance', () => {
             const rawData = loadTraceAsBuffer('web-dev-with-commit.json.gz');
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(true);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 sinon.stub(selectedPage.tracing, 'stop').resolves(rawData);
                 const fetchStub = globalThis.fetch;
                 fetchStub.resetHistory();
@@ -295,10 +295,10 @@ describe('performance', () => {
             const modifiedData = new TextEncoder().encode(modifiedJsonString);
             await withMcpContext(async (response, context) => {
                 context.setIsRunningPerformanceTrace(true);
-                const selectedPage = context.getSelectedPptrPage();
+                const selectedPage = context.getSelectedMcpPage().pptrPage;
                 sinon.stub(selectedPage.tracing, 'stop').resolves(modifiedData);
                 // Emulate mobile
-                await context.emulate({
+                await context.getSelectedMcpPage().emulate({
                     viewport: {
                         width: 375,
                         height: 667,
