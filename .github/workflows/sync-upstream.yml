@@ -148,6 +148,22 @@ jobs:
           TAG: ${{ steps.up.outputs.tag }}
         run: |
           set -euo pipefail
+          # A sync branch left behind by a FAILED earlier run wedges this job forever:
+          # the new branch is cut from current main, the stale remote branch is not, and
+          # every subsequent push is rejected non-fast-forward. That is exactly what
+          # happened -- sync/1.6.0 sat from 2026-07-14 and killed every nightly run since.
+          #
+          # If a PR is already open for this branch the work is queued for review and
+          # there is nothing to do. Otherwise the branch is bot-generated debris,
+          # regenerated from upstream on every run, so replacing it loses nothing.
+          if [ "$(gh pr list --head "sync/${NEW}" --state open --json number --jq 'length')" != "0" ]; then
+            echo "PR already open for sync/${NEW} - nothing to do."
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "sync/${NEW}" >/dev/null 2>&1; then
+            echo "Replacing stale sync/${NEW} (no open PR)."
+            git push origin --delete "sync/${NEW}"
+          fi
           git push -u origin "sync/${NEW}"
           cat > /tmp/body.md <<MSG
           Automated upstream sync: **${CUR} -> ${NEW}**.
