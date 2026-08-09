@@ -4,7 +4,7 @@
 //
 // Why: upstream launches with `npx chrome-devtools-mcp@<ver>`. npx re-resolves the
 // spec against the registry on EVERY spawn — measured at 9.3s of pure overhead on
-// Daniel's box, pushing total startup to ~20s and intermittently past Claude Code's
+// the user's box, pushing total startup to ~20s and intermittently past Claude Code's
 // hard 30s MCP handshake budget. Launching the committed build directly: ~4s.
 //
 // Keeping the patch in a SCRIPT (not a hand-edited file) is what makes the upstream
