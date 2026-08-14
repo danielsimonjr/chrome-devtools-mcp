@@ -90,6 +90,40 @@ The `git rm` before the restore is load-bearing: `git checkout BASE -- .github/w
 restores our files but leaves any workflow upstream *added*, which is enough to trigger
 the same rejection.
 
+## `gh` in a fork resolves against the PARENT — always pass `--repo`
+
+This is a real GitHub fork (`isFork: true`, parent `ChromeDevTools/chrome-devtools-mcp`),
+and a bare `gh pr create` / `gh pr list` targets the **parent**. Two bugs came from it:
+
+- `gh pr create` tried to open the sync PR against ChromeDevTools and failed with
+  `GraphQL: Resource not accessible by integration (createPullRequest)`. That message
+  names the *permission* and never the *repo it was denied on*, so it reads as a missing
+  `pull-requests: write` — which the workflow already had. The theory that survived
+  longest was the account-level "Allow GitHub Actions to create and approve pull
+  requests" toggle; it was disproved by observing that `github-actions[bot]` had opened
+  PRs in other repos of this account the same day.
+- `gh pr list --head` was listing the parent's PRs, so it always returned zero. The
+  "a PR is already open, leave the branch alone" guard therefore never fired, and the
+  next run would have deleted a sync branch out from under its own open PR.
+
+`gh pr create` also needs an explicit `--base`, because gh's default base is the
+parent's default branch.
+
+## The rebuild commit must `git rm --cached` build/ first
+
+`find build -type f | xargs git add` enumerates files that **exist**, so it can never
+stage a deletion. A file upstream removes stays committed forever and `build/` only
+grows — eventually shipping dead modules, and a renamed entry point would leave the old
+one in place.
+
+Measured on the 1.6.0 → 1.7.0 sync: **858 additions, 267 modifications, 0 deletions.**
+Zero deletions across a whole upstream minor bump is the tell. The only visible symptom
+was `Warning: 35 uncommitted changes` in an unrelated later step.
+
+`git rm -r --cached -- build` before the re-add makes the index match the filtered file
+list exactly. `--cached` leaves the worktree alone, so the `find` immediately after
+picks everything back up.
+
 ## Do not add an npm-publish step
 
 The package name `chrome-devtools-mcp` is **owned upstream** (mathias, orkon). A

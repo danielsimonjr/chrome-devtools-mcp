@@ -184,7 +184,16 @@ jobs:
           # Everything EXCEPT source maps (~47MB, dev-only). Note this must include the
           # non-.js runtime assets: build/src/third_party/issue-descriptions/*.md and
           # bundled-packages.json are READ AT RUNTIME, so a `*.js`-only filter breaks the server.
-          find build -type f ! -name '*.map' -print0 | xargs -0 git add -f --
+          #
+          # `git rm --cached` FIRST so the index ends up matching the filtered file list
+          # EXACTLY. `find | xargs git add` enumerates files that exist, so on its own it can
+          # never stage a DELETION: a file upstream removed stays committed forever and
+          # build/ only grows. Measured on the 1.6.0 -> 1.7.0 sync: 858 additions, 267
+          # modifications, **0 deletions** - and the leftovers surfaced only as a
+          # `Warning: 35 uncommitted changes` from a later gh call. --cached keeps the
+          # worktree files, so the re-add below picks them straight back up.
+          git rm -r -q --cached --ignore-unmatch -- build
+          find build -type f ! -name '*.map' -print0 | xargs -0 -r git add -f --
           git add -- .claude-plugin/plugin.json
           cat > /tmp/msg.txt <<'MSG'
           chore(fork): sync to upstream and rebuild the node launcher
@@ -214,7 +223,18 @@ jobs:
           # If a PR is already open for this branch the work is queued for review and
           # there is nothing to do. Otherwise the branch is bot-generated debris,
           # regenerated from upstream on every run, so replacing it loses nothing.
-          if [ "$(gh pr list --head "sync/${NEW}" --state open --json number --jq 'length')" != "0" ]; then
+          # `--repo` is REQUIRED on every gh call here. This repo is a real GitHub fork
+          # (parent: ChromeDevTools/chrome-devtools-mcp), and gh resolves a bare invocation
+          # against the PARENT, not the fork. Two distinct bugs came from that:
+          #   * `gh pr create` targeted ChromeDevTools and failed with
+          #     `GraphQL: Resource not accessible by integration (createPullRequest)` -
+          #     a message that names the permission and NOT the repo it was denied on, so it
+          #     reads as "our token lacks pull-requests: write" when in fact it has it and
+          #     was being pointed at someone else's repo.
+          #   * `gh pr list` below silently listed the PARENT's PRs, so it always found zero
+          #     and the "a PR is already open" guard never fired - meaning a sync branch
+          #     under review would have been deleted out from under its own PR.
+          if [ "$(gh pr list --repo "${GITHUB_REPOSITORY}" --head "sync/${NEW}" --state open --json number --jq 'length')" != "0" ]; then
             echo "PR already open for sync/${NEW} - nothing to do."
             exit 0
           fi
@@ -237,4 +257,11 @@ jobs:
           \`/plugin marketplace update chrome-devtools-plugins\` then \`/reload-plugins\`.
           MSG
           sed -i 's/^          //' /tmp/body.md
-          gh pr create --title "chore(fork): sync to upstream ${NEW}" --body-file /tmp/body.md
+          # --repo/--base/--head all pinned: see the gh-in-a-fork note above. --base must be
+          # named too, because gh's default base is the PARENT's default branch.
+          gh pr create \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --head "sync/${NEW}" \
+            --title "chore(fork): sync to upstream ${NEW}" \
+            --body-file /tmp/body.md
