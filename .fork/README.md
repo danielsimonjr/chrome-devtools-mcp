@@ -51,6 +51,18 @@ wrong resolution fails loudly rather than shipping.
 **Conflicts outside that generated set still fail the job.** Those files are
 hand-written, and a conflict there is a real decision that should not be guessed.
 
+### `|| true` on the build/ grep is required, not defensive
+
+The step runs under `set -euo pipefail` **and** `bash -e`. `grep` exits **1** when it
+matches nothing, and matching nothing is the *normal* case for `build/` — it usually
+does not conflict. Without `|| true` the shell dies at that grep, before resolving
+anything.
+
+The symptom is deceptive: the log shows the merge conflicts and then a bare
+`Process completed with exit code 1`, with **none** of the step's own error text. That
+reads as "the resolution logic did not run". It did not — grep killed the shell first.
+The first attempt at this fix shipped with exactly that bug.
+
 ## Do not add an npm-publish step
 
 The package name `chrome-devtools-mcp` is **owned upstream** (mathias, orkon). A

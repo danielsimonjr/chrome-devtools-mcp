@@ -91,7 +91,13 @@ jobs:
             git checkout --theirs -- "$f" 2>/dev/null || true
             git add -- "$f" 2>/dev/null || true
           done
-          git diff --name-only --diff-filter=U | grep '^build/' | while read -r f; do
+          # `|| true` is REQUIRED, not defensive. This step runs under `set -euo pipefail`
+          # AND `bash -e`, and grep exits 1 when it matches nothing — which is the NORMAL
+          # case here, because build/ usually does not conflict. Without it the script dies
+          # before resolving anything, and the log shows the merge conflicts with no error
+          # message of its own, which reads exactly like the resolution never ran. It did
+          # not: grep killed the shell.
+          for f in $(git diff --name-only --diff-filter=U | grep '^build/' || true); do
             git checkout --theirs -- "$f" 2>/dev/null || true
             git add -- "$f" 2>/dev/null || true
           done
