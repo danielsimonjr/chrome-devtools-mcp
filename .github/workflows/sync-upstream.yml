@@ -60,6 +60,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BASE="$(git rev-parse HEAD)"
           git checkout -b "sync/${{ steps.up.outputs.new }}"
           git merge --no-edit "${{ steps.up.outputs.tag }}" || true
 
@@ -101,6 +102,28 @@ jobs:
             git checkout --theirs -- "$f" 2>/dev/null || true
             git add -- "$f" 2>/dev/null || true
           done
+
+          # KEEP OUR WORKFLOWS WHOLESALE. GITHUB_TOKEN can never push a change under
+          # .github/workflows/: that needs the `workflows` App permission, which is NOT part
+          # of the `permissions:` vocabulary a workflow can request. There is no setting that
+          # fixes this - only a PAT would, and a PAT is not something this job should hold.
+          #
+          # The failure it produces names a file, not a permission problem, so it reads like a
+          # merge fault:
+          #   ! [remote rejected] sync/1.7.0 -> sync/1.7.0 (refusing to allow a GitHub App to
+          #     create or update workflow `.github/workflows/pre-release.yml` without
+          #     `workflows` permission)
+          #
+          # Dropping upstream's workflows is also correct on the merits, not just expedient:
+          # they are release automation for a package whose npm name is owned upstream, and
+          # this fork must never publish it (see .fork/README.md). The only workflow this fork
+          # needs is this one.
+          #
+          # `git rm` first, so a workflow file ADDED by upstream is deleted rather than left
+          # behind - `git checkout BASE -- <dir>` alone would restore ours and keep theirs.
+          git rm -r -q -f --ignore-unmatch -- .github/workflows >/dev/null 2>&1 || true
+          git checkout "$BASE" -- .github/workflows
+          git add -- .github/workflows
 
           if git diff --name-only --diff-filter=U | grep -q .; then
             echo "::error::unresolved conflicts in hand-written files - resolve by hand"

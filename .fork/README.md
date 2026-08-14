@@ -63,6 +63,33 @@ The symptom is deceptive: the log shows the merge conflicts and then a bare
 reads as "the resolution logic did not run". It did not — grep killed the shell first.
 The first attempt at this fix shipped with exactly that bug.
 
+## sync-upstream: upstream's workflows are dropped, ours are kept
+
+The merge step restores `.github/workflows/` from the pre-merge commit, so the sync
+branch never carries a change to any workflow file.
+
+**This is a hard platform limit, not a configuration mistake.** `GITHUB_TOKEN` cannot
+push under `.github/workflows/` — that requires the `workflows` GitHub App permission,
+and `workflows` is **not** in the vocabulary a workflow's `permissions:` block can
+request. No amount of `contents: write` helps. Only a PAT could, and this job should
+not hold one.
+
+The rejection names a *file*, which makes it read as a merge problem:
+
+```
+! [remote rejected] sync/1.7.0 -> sync/1.7.0 (refusing to allow a GitHub App to
+  create or update workflow `.github/workflows/pre-release.yml` without
+  `workflows` permission)
+```
+
+Dropping them is right on the merits too. Upstream's workflows are release automation
+for a package name this fork does not own and must never publish (below). The only
+workflow this fork needs is `sync-upstream.yml` itself.
+
+The `git rm` before the restore is load-bearing: `git checkout BASE -- .github/workflows`
+restores our files but leaves any workflow upstream *added*, which is enough to trigger
+the same rejection.
+
 ## Do not add an npm-publish step
 
 The package name `chrome-devtools-mcp` is **owned upstream** (mathias, orkon). A
