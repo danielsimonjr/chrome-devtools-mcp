@@ -12,15 +12,26 @@ export const DAEMON_SCRIPT_PATH = path.join(import.meta.dirname, 'daemon.js');
 export const INDEX_SCRIPT_PATH = path.join(import.meta.dirname, '..', 'bin', 'chrome-devtools-mcp.js');
 const APP_NAME = 'chrome-devtools-mcp';
 export const DAEMON_CLIENT_NAME = 'chrome-devtools-cli-daemon';
+export function assertValidSessionId(sessionId) {
+    if (!sessionId) {
+        return;
+    }
+    if (!/^[a-fA-F0-9-]+$/.test(sessionId)) {
+        throw new Error(`Invalid sessionId: ${sessionId}`);
+    }
+}
 // Using these paths due to strict limits on the POSIX socket path length.
 export function getSocketPath(sessionId) {
+    assertValidSessionId(sessionId);
     const uid = os.userInfo().uid;
+    const username = os.userInfo().username;
     const suffix = sessionId ? `-${sessionId}` : '';
     const appName = APP_NAME + suffix;
     if (IS_WINDOWS) {
         // Windows uses Named Pipes, not file paths.
         // This format is required for server.listen()
-        return path.join('\\\\.\\pipe', appName, 'server.sock');
+        // Append username to prevent cross-user named pipe squatting
+        return path.join('\\\\.\\pipe', `${appName}-${username}`, 'server.sock');
     }
     // 1. Try XDG_RUNTIME_DIR (Linux standard, sometimes macOS)
     if (process.env.XDG_RUNTIME_DIR) {
@@ -32,6 +43,7 @@ export function getSocketPath(sessionId) {
     return path.join('/tmp', `${appName}-${uid}.sock`);
 }
 export function getRuntimeHome(sessionId) {
+    assertValidSessionId(sessionId);
     const platform = os.platform();
     const uid = os.userInfo().uid;
     const suffix = sessionId ? `-${sessionId}` : '';
@@ -50,10 +62,12 @@ export function getRuntimeHome(sessionId) {
 }
 export const IS_WINDOWS = os.platform() === 'win32';
 export function getPidFilePath(sessionId) {
+    assertValidSessionId(sessionId);
     const runtimeDir = getRuntimeHome(sessionId);
     return path.join(runtimeDir, 'daemon.pid');
 }
 export function getDaemonPid(sessionId) {
+    assertValidSessionId(sessionId);
     try {
         const pidFile = getPidFilePath(sessionId);
         logger?.(`Daemon pid file ${pidFile} sessionId=${sessionId}`);
@@ -73,6 +87,7 @@ export function getDaemonPid(sessionId) {
     }
 }
 export function isDaemonRunning(sessionId) {
+    assertValidSessionId(sessionId);
     const pid = getDaemonPid(sessionId);
     if (pid) {
         try {
@@ -103,11 +118,11 @@ export function serializeArgs(options, argv) {
         }
         else if (Array.isArray(value)) {
             for (const item of value) {
-                args.push(`--${kebabKey}`, String(item));
+                args.push(`--${kebabKey}=${String(item)}`);
             }
         }
         else {
-            args.push(`--${kebabKey}`, String(value));
+            args.push(`--${kebabKey}=${String(value)}`);
         }
     }
     return args;

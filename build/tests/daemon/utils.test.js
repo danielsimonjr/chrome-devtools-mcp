@@ -5,7 +5,21 @@
  */
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { serializeArgs } from '../../src/daemon/utils.js';
+import { serializeArgs, assertValidSessionId } from '../../src/daemon/utils.js';
+describe('assertValidSessionId', () => {
+    it('should not throw for empty sessionId', () => {
+        assert.doesNotThrow(() => assertValidSessionId(''));
+    });
+    it('should not throw for valid UUID', () => {
+        assert.doesNotThrow(() => assertValidSessionId('123e4567-e89b-12d3-a456-426614174000'));
+        assert.doesNotThrow(() => assertValidSessionId('aabbccdd-1122-3344-5566-77889900aabb'));
+    });
+    it('should throw for invalid sessionId formats', () => {
+        assert.throws(() => assertValidSessionId('../../../etc/passwd'), /Invalid sessionId/);
+        assert.throws(() => assertValidSessionId('sessionId_with_underscore'), /Invalid sessionId/);
+        assert.throws(() => assertValidSessionId('session@id'), /Invalid sessionId/);
+    });
+});
 describe('serializeArgs', () => {
     it('should ignore undefined or null values', () => {
         const options = {
@@ -21,7 +35,7 @@ describe('serializeArgs', () => {
             $0: 'test',
         };
         const result = serializeArgs(options, argv);
-        assert.deepStrictEqual(result, ['--baz', 'value']);
+        assert.deepStrictEqual(result, ['--baz=value']);
     });
     it('should handle boolean values', () => {
         const options = { foo: {}, bar: {} };
@@ -34,15 +48,24 @@ describe('serializeArgs', () => {
         const result = serializeArgs(options, argv);
         assert.deepStrictEqual(result, ['--foo', '--no-bar']);
     });
-    it('should handle array values', () => {
-        const options = { foo: {} };
+    it('should handle array values including hyphenated flags', () => {
+        const options = { foo: {}, chromeArg: {} };
         const argv = {
             foo: ['val1', 'val2'],
+            chromeArg: [
+                '--use-fake-device-for-media-stream',
+                '--use-file-for-fake-audio-capture=/tmp/test.wav',
+            ],
             _: [],
             $0: 'test',
         };
         const result = serializeArgs(options, argv);
-        assert.deepStrictEqual(result, ['--foo', 'val1', '--foo', 'val2']);
+        assert.deepStrictEqual(result, [
+            '--foo=val1',
+            '--foo=val2',
+            '--chrome-arg=--use-fake-device-for-media-stream',
+            '--chrome-arg=--use-file-for-fake-audio-capture=/tmp/test.wav',
+        ]);
     });
     it('should handle primitive values', () => {
         const options = { foo: {}, bar: {} };
@@ -53,7 +76,7 @@ describe('serializeArgs', () => {
             $0: 'test',
         };
         const result = serializeArgs(options, argv);
-        assert.deepStrictEqual(result, ['--foo', 'string', '--bar', '42']);
+        assert.deepStrictEqual(result, ['--foo=string', '--bar=42']);
     });
     it('should convert camelCase keys to kebab-case', () => {
         const options = {
@@ -68,8 +91,7 @@ describe('serializeArgs', () => {
         };
         const result = serializeArgs(options, argv);
         assert.deepStrictEqual(result, [
-            '--camel-case-key',
-            'value1',
+            '--camel-case-key=value1',
             '--another-key',
         ]);
     });

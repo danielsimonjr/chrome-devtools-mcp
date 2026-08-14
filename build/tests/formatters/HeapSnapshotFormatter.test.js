@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import { HeapSnapshotFormatter } from '../../src/formatters/HeapSnapshotFormatter.js';
 import { DevTools } from '../../src/third_party/index.js';
 import { stableIdSymbol } from '../../src/utils/id.js';
+const { formatBytesToKb } = DevTools.I18n.ByteUtilities;
 describe('HeapSnapshotFormatter', () => {
     DevTools.I18n.DevToolsLocale.DevToolsLocale.instance({
         create: true,
@@ -54,15 +55,15 @@ describe('HeapSnapshotFormatter', () => {
                     id: 1,
                     className: 'ObjectA',
                     count: 10,
-                    selfSize: DevTools.I18n.ByteUtilities.formatBytesToKb(100),
-                    retainedSize: DevTools.I18n.ByteUtilities.formatBytesToKb(1000),
+                    selfSize: formatBytesToKb(100),
+                    retainedSize: formatBytesToKb(1000),
                 },
                 {
                     id: 2,
                     className: 'ObjectB',
                     count: 5,
-                    selfSize: DevTools.I18n.ByteUtilities.formatBytesToKb(50),
-                    retainedSize: DevTools.I18n.ByteUtilities.formatBytesToKb(500),
+                    selfSize: formatBytesToKb(50),
+                    retainedSize: formatBytesToKb(500),
                 },
             ]);
         });
@@ -134,7 +135,7 @@ describe('HeapSnapshotFormatter', () => {
             const result = HeapSnapshotFormatter.formatDiffSummary(summarized);
             const expected = [
                 'index,className,addedCount,removedCount,countDelta,addedSize,removedSize,sizeDelta',
-                `0,Balanced,1,1,0,${DevTools.I18n.ByteUtilities.formatBytesToKb(100)},${DevTools.I18n.ByteUtilities.formatBytesToKb(100)},${DevTools.I18n.ByteUtilities.formatBytesToKb(0)}`,
+                `0,Balanced,1,1,0,${formatBytesToKb(100)},${formatBytesToKb(100)},${formatBytesToKb(0)}`,
             ].join('\n');
             assert.strictEqual(result, expected);
             const summarizedJson = JSON.stringify(summarized);
@@ -159,8 +160,8 @@ describe('HeapSnapshotFormatter', () => {
                 deletedSelfSizes: [60],
             };
             const formatted = HeapSnapshotFormatter.formatDiffDetails(details);
-            const formatted120 = DevTools.I18n.ByteUtilities.formatBytesToKb(120);
-            const formatted60 = DevTools.I18n.ByteUtilities.formatBytesToKb(60);
+            const formatted120 = formatBytesToKb(120);
+            const formatted60 = formatBytesToKb(60);
             const expected = [
                 `MyClass: # new: 2, # deleted: 1, # delta: +1, alloc size: +${formatted120}, freed size: +${formatted60}, size delta: +${formatted60}`,
                 'Objects:',
@@ -245,8 +246,8 @@ describe('HeapSnapshotFormatter', () => {
             const result = HeapSnapshotFormatter.formatDominators(mockDominators);
             const expected = [
                 'nodeId,nodeName,selfSize,retainedSize',
-                `10,ClassA,${DevTools.I18n.ByteUtilities.formatBytesToKb(100)},${DevTools.I18n.ByteUtilities.formatBytesToKb(1000)}`,
-                `20,ClassB,${DevTools.I18n.ByteUtilities.formatBytesToKb(50)},${DevTools.I18n.ByteUtilities.formatBytesToKb(500)}`,
+                `10,ClassA,${formatBytesToKb(100)},${formatBytesToKb(1000)}`,
+                `20,ClassB,${formatBytesToKb(50)},${formatBytesToKb(500)}`,
             ].join('\n');
             assert.strictEqual(result, expected);
         });
@@ -254,6 +255,41 @@ describe('HeapSnapshotFormatter', () => {
             const mockDominators = [];
             const result = HeapSnapshotFormatter.formatDominators(mockDominators);
             const expected = 'nodeId,nodeName,selfSize,retainedSize';
+            assert.strictEqual(result, expected);
+        });
+    });
+    describe('formatNativeContextSizes', () => {
+        it('formats native context sizes as CSV with summary lines', () => {
+            const mockSizes = {
+                nativeContexts: [
+                    {
+                        nodeId: 10,
+                        nodeIndex: 1,
+                        nodeName: 'system / NativeContext',
+                        attributedSize: 500,
+                        retainedSize: 1000,
+                        selfSize: 100,
+                    },
+                    {
+                        nodeId: 20,
+                        nodeIndex: 2,
+                        nodeName: 'system / NativeContext / https://example.com',
+                        attributedSize: 2000,
+                        retainedSize: 5000,
+                        selfSize: 200,
+                    },
+                ],
+                sharedSize: 300,
+                noAttributionSize: 400,
+            };
+            const result = HeapSnapshotFormatter.formatNativeContextSizes(mockSizes);
+            const expected = [
+                'nodeId,nodeName,selfSize,retainedSize,attributedSize',
+                `20,system / NativeContext / https://example.com,${formatBytesToKb(200)},${formatBytesToKb(5000)},${formatBytesToKb(2000)}`,
+                `10,system / NativeContext,${formatBytesToKb(100)},${formatBytesToKb(1000)},${formatBytesToKb(500)}`,
+                `Shared Size: ${formatBytesToKb(300)}`,
+                `Unattributed Size: ${formatBytesToKb(400)}`,
+            ].join('\n');
             assert.strictEqual(result, expected);
         });
     });

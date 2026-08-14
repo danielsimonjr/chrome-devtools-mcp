@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'node:fs/promises';
-import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -70,6 +69,7 @@ export class McpContext {
         this.browser.off('targetcreated', this.#onTargetCreated);
         this.browser.off('targetdestroyed', this.#onTargetDestroyed);
         this.#serviceWorkerConsoleCollector.dispose();
+        this.#heapSnapshotManager.dispose();
         for (const mcpPage of this.#mcpPages.values()) {
             mcpPage.dispose();
         }
@@ -163,7 +163,7 @@ export class McpContext {
         const resolvedRoots = await Promise.allSettled(roots.map(async (root) => {
             const rootPathUri = root.uri;
             const rootPath = path.resolve(fileURLToPath(rootPathUri));
-            return await fsPromises.realpath(rootPath);
+            return await fs.realpath(rootPath);
         }));
         for (let i = 0; i < roots.length; i++) {
             const root = roots[i];
@@ -253,6 +253,26 @@ export class McpContext {
             throw new Error(`The selected page has been closed. Call ${listPages().name} to see open pages.`);
         }
         return page;
+    }
+    async getDevToolsData(page) {
+        const targetPage = page ?? this.#selectedPage;
+        if (!targetPage) {
+            return undefined;
+        }
+        let timeoutId;
+        const timeoutPromise = new Promise(resolve => {
+            timeoutId = setTimeout(() => resolve(undefined), 500);
+        });
+        const dataPromise = targetPage.getDevToolsData();
+        try {
+            return await Promise.race([dataPromise, timeoutPromise]);
+        }
+        catch {
+            return undefined;
+        }
+        finally {
+            clearTimeout(timeoutId);
+        }
     }
     /**
      * Returns true once if this context was created by reconnecting after the
@@ -407,28 +427,37 @@ export class McpContext {
     getExtensionServiceWorkerId(extensionServiceWorker) {
         return this.#extensionServiceWorkerMap.get(extensionServiceWorker.target);
     }
-    async saveTemporaryFile(data, filename) {
-        const filepath = await getTempFilePath(filename);
+    async #writeFile(filepath, data) {
         await this.validatePath(filepath);
         try {
-            await fs.writeFile(filepath, data);
+            await fs.mkdir(path.dirname(filepath), { recursive: true });
+            // Open the file with flags to:
+            // - O_WRONLY: Write-only
+            // - O_CREAT: Create if it doesn't exist
+            // - O_TRUNC: Truncate to zero length if it exists
+            // - O_NOFOLLOW: DO NOT follow symlinks.
+            // - 0o600: Permissions: read/write for owner, no permissions for others.
+            await fs.writeFile(filepath, data, {
+                flag: fs.constants.O_WRONLY |
+                    fs.constants.O_CREAT |
+                    fs.constants.O_TRUNC |
+                    fs.constants.O_NOFOLLOW,
+                mode: 0o600,
+            });
         }
         catch (err) {
-            throw new Error('Could not save a file', { cause: err });
+            throw new Error(`Could not write ${filepath}`, { cause: err });
         }
+    }
+    async saveTemporaryFile(data, filename) {
+        const filepath = await getTempFilePath(filename);
+        await this.#writeFile(filepath, data);
         return { filepath };
     }
     async saveFile(data, clientProvidedFilePath, extension) {
         const filePath = await this.ensureExtension(clientProvidedFilePath, extension);
-        try {
-            await fs.mkdir(path.dirname(filePath), { recursive: true });
-            await fs.writeFile(filePath, data);
-            return { filename: filePath };
-        }
-        catch (err) {
-            this.logger?.(err);
-            throw new Error('Could not save a file', { cause: err });
-        }
+        await this.#writeFile(filePath, data);
+        return { filename: filePath };
     }
     storeTraceRecording(result) {
         // Clear the trace results because we only consume the latest trace currently.
@@ -439,11 +468,17 @@ export class McpContext {
         return this.#traceResults;
     }
     async installExtension(extensionPath) {
-        const id = await this.browser.installExtension(extensionPath);
+        const id = await Promise.race([
+            this.browser.installExtension(extensionPath),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout installing extension')), 30000)),
+        ]);
         return id;
     }
     async uninstallExtension(id) {
-        await this.browser.uninstallExtension(id);
+        await Promise.race([
+            this.browser.uninstallExtension(id),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout uninstalling extension')), 30000)),
+        ]);
     }
     async triggerExtensionAction(id) {
         const extensions = await this.browser.extensions();
@@ -461,8 +496,8 @@ export class McpContext {
         const pptrExtensions = await this.browser.extensions();
         return pptrExtensions.get(id);
     }
-    async getHeapSnapshotAggregates(filePath, filterName) {
-        return await this.#heapSnapshotManager.getAggregates(filePath, filterName);
+    async getHeapSnapshotAggregates(filePath, filterName, objectId) {
+        return await this.#heapSnapshotManager.getAggregates(filePath, filterName, objectId);
     }
     async getHeapSnapshotDuplicateStrings(filePath) {
         return await this.#heapSnapshotManager.getDuplicateStrings(filePath);
@@ -473,14 +508,20 @@ export class McpContext {
     async getHeapSnapshotStaticData(filePath) {
         return await this.#heapSnapshotManager.getStaticData(filePath);
     }
-    async getHeapSnapshotNodesById(filePath, id, filterName) {
-        return await this.#heapSnapshotManager.getNodesById(filePath, id, filterName);
+    async getHeapSnapshotNativeContextSizes(filePath) {
+        return await this.#heapSnapshotManager.getNativeContextSizes(filePath);
+    }
+    async getHeapSnapshotNodesById(filePath, id, filterName, objectId) {
+        return await this.#heapSnapshotManager.getNodesById(filePath, id, filterName, objectId);
     }
     async getHeapSnapshotRetainers(filePath, nodeId) {
         return await this.#heapSnapshotManager.getRetainers(filePath, nodeId);
     }
+    async getHeapSnapshotObjectDetails(filePath, nodeId) {
+        return await this.#heapSnapshotManager.getObjectInfo(filePath, nodeId);
+    }
     async closeHeapSnapshot(filePath) {
-        return this.#heapSnapshotManager.dispose(filePath);
+        return this.#heapSnapshotManager.disposeSnapshot(filePath);
     }
     hasHeapSnapshots() {
         return this.#heapSnapshotManager.hasSnapshots();
@@ -529,7 +570,7 @@ export class McpContext {
             }
             case 'file:': {
                 await this.validatePath(fileURLToPath(url));
-                return await fsPromises.readFile(url, 'utf-8');
+                return await fs.readFile(url, 'utf-8');
             }
             default:
                 throw new Error(`Unsupported protocol for: ${url}`);

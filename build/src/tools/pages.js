@@ -346,6 +346,7 @@ export const getTabId = definePageTool({
         const page = context.getPageById(request.params.pageId);
         const tabId = page.pptrPage._tabId;
         response.setTabId(tabId);
+        response.appendResponseLine(`Tab ID: ${tabId}`);
     },
 });
 //# sourceMappingURL=pages.js.map

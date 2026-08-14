@@ -24,17 +24,14 @@ describe('extension', () => {
             // Install the extension
             await installExtension.handler({ params: { path: EXTENSION_PATH } }, response, context);
             const extensionId = extractExtensionId(response);
-            const page = context.getSelectedMcpPage().pptrPage;
-            await page.goto('chrome://extensions');
-            const element = await page.waitForSelector(`extensions-manager >>> extensions-item[id="${extensionId}"]`);
-            assert.ok(element, `Extension with ID "${extensionId}" should be visible on chrome://extensions`);
+            let extensions = await context.listExtensions();
+            assert.ok(extensions.has(extensionId), `Extension with ID "${extensionId}" should be installed`);
             // Uninstall the extension
             await uninstallExtension.handler({ params: { id: extensionId } }, response, context);
             const uninstallResponseLine = response.responseLines[1];
             assert.ok(uninstallResponseLine.includes('Extension uninstalled'), 'Response should indicate uninstallation');
-            await page.waitForSelector('extensions-manager');
-            const elementAfterUninstall = await page.$(`extensions-manager >>> extensions-item[id="${extensionId}"]`);
-            assert.strictEqual(elementAfterUninstall, null, `Extension with ID "${extensionId}" should NOT be visible on chrome://extensions`);
+            extensions = await context.listExtensions();
+            assert.ok(!extensions.has(extensionId), `Extension with ID "${extensionId}" should NOT be installed`);
         });
     });
     it('lists installed extensions', async () => {
@@ -90,7 +87,7 @@ describe('extension', () => {
             await listConsoleMessages({
                 categoryExtensions: true,
             }).handler({ params: { includePreservedMessages: true }, page: mcpPage }, response, context);
-            const result = await response.handle('list_console_messages', context);
+            const result = await response.handle(context);
             const consoleOutput = getTextContent(result.content[0]);
             assert.ok(consoleOutput.includes('from content script!'), `Console output should contain message from content script. Got: ${consoleOutput}`);
             await context.uninstallExtension(extensionId);

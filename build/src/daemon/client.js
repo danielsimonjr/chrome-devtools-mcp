@@ -103,6 +103,10 @@ const SEND_COMMAND_TIMEOUT = 60_000; // ms
  * `sendCommand` opens a socket connection sends a single command and disconnects.
  */
 export async function sendCommand(command, sessionId, timeout = SEND_COMMAND_TIMEOUT) {
+    // Before connecting and sending, verify the daemon is still alive.
+    if (!isDaemonRunning(sessionId)) {
+        throw new Error('Daemon is not running.');
+    }
     const socketPath = getSocketPath(sessionId);
     const socket = net.createConnection({
         path: socketPath,
@@ -140,6 +144,24 @@ export async function stopDaemon(sessionId) {
     const pidFilePath = getPidFilePath(sessionId);
     await sendCommand({ method: 'stop' }, sessionId);
     await waitForFile(pidFilePath, /*removed=*/ true);
+}
+export async function verifyDaemonVersion(sessionId, cliVersion) {
+    if (!isDaemonRunning(sessionId)) {
+        return undefined;
+    }
+    try {
+        const response = await sendCommand({ method: 'status' }, sessionId);
+        if (response.success) {
+            const data = JSON.parse(response.result);
+            if (data?.version && data.version !== cliVersion) {
+                return `Warning: Daemon server version (${data.version}) does not match CLI version (${cliVersion}). Run 'chrome-devtools start' to update and restart the daemon.`;
+            }
+        }
+    }
+    catch {
+        // Suppress communication failures during check; command execution handles unreachable daemon errors.
+    }
+    return undefined;
 }
 export async function handleResponse(response, format) {
     if (response.isError) {

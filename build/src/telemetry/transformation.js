@@ -3,6 +3,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { isLocalhost } from '../utils/url.js';
 const LATENCY_BUCKETS = [50, 100, 250, 500, 1000, 2500, 5000, 10000];
 export function bucketizeLatency(latencyMs) {
     for (const bucket of LATENCY_BUCKETS) {
@@ -150,5 +151,34 @@ export function sanitizeParams(params, schema) {
         transformed[transformedName] = transformedValue;
     }
     return transformed;
+}
+function transformDevToolsData(devToolsData) {
+    const logged = {};
+    if (devToolsData.cdpBackendNodeId !== undefined) {
+        logged.is_dom_element_selected = true;
+    }
+    if (devToolsData.cdpRequestId !== undefined) {
+        logged.is_network_request_selected = true;
+    }
+    return logged;
+}
+export function buildContext(devToolsData, pageUrl) {
+    let context;
+    if (devToolsData === undefined) {
+        context = { is_devtools_open: false };
+    }
+    else {
+        context = {
+            is_devtools_open: Object.keys(devToolsData).length > 0,
+        };
+        const loggedDevtoolsData = transformDevToolsData(devToolsData);
+        if (Object.keys(loggedDevtoolsData).length > 0) {
+            context.devtools_data = loggedDevtoolsData;
+        }
+    }
+    if (pageUrl !== undefined) {
+        context.is_localhost = isLocalhost(pageUrl);
+    }
+    return context;
 }
 //# sourceMappingURL=transformation.js.map

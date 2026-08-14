@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { bucketizeLatency, getEnumValues, sanitizeParams, stripUnderscoreBeforeNumber, transformArgName, } from '../../src/telemetry/transformation.js';
+import { bucketizeLatency, buildContext, getEnumValues, sanitizeParams, stripUnderscoreBeforeNumber, transformArgName, } from '../../src/telemetry/transformation.js';
 import { zod } from '../../src/third_party/index.js';
 describe('getEnumValues', () => {
     it('resolves values for a bare enum', () => {
@@ -132,6 +132,45 @@ describe('transformArgName', () => {
     it('sanitizes argument names containing underscores before numbers', () => {
         assert.strictEqual(transformArgName('ZodNumber', 'my3pParam'), 'my3p_param');
         assert.strictEqual(transformArgName('ZodString', 'my3pParam'), 'my3p_param_length');
+    });
+});
+describe('buildContext', () => {
+    it('should set is_devtools_open based on devToolsData', () => {
+        assert.deepStrictEqual(buildContext(undefined, undefined), {
+            is_devtools_open: false,
+        });
+        assert.deepStrictEqual(buildContext({}, undefined), {
+            is_devtools_open: false,
+        });
+        assert.deepStrictEqual(buildContext({ cdpBackendNodeId: 1 }, undefined), {
+            is_devtools_open: true,
+            devtools_data: {
+                is_dom_element_selected: true,
+            },
+        });
+    });
+    it('should set is_localhost based on pageUrl', () => {
+        assert.deepStrictEqual(buildContext(undefined, 'http://localhost:9222/test'), {
+            is_devtools_open: false,
+            is_localhost: true,
+        });
+        assert.deepStrictEqual(buildContext(undefined, 'https://example.com/test'), {
+            is_devtools_open: false,
+            is_localhost: false,
+        });
+    });
+    it('should include devtools_data when present', () => {
+        assert.deepStrictEqual(buildContext({
+            cdpBackendNodeId: 1,
+            cdpRequestId: 'req-1',
+        }, 'http://localhost:9222/'), {
+            is_devtools_open: true,
+            is_localhost: true,
+            devtools_data: {
+                is_dom_element_selected: true,
+                is_network_request_selected: true,
+            },
+        });
     });
 });
 //# sourceMappingURL=transformation.test.js.map

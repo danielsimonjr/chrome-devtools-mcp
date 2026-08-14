@@ -12,7 +12,7 @@ import { McpServer, SetLevelRequestSchema, ListRootsResultSchema, RootsListChang
 import { ToolHandler } from './ToolHandler.js';
 import { createTools } from './tools/tools.js';
 import { logger } from './utils/logger.js';
-import { Mutex } from './utils/Mutex.js';
+import { Mutex } from './third_party/index.js';
 import { VERSION } from './version.js';
 export { buildFlag } from './ToolHandler.js';
 export async function createMcpServer(serverArgs, options) {
@@ -110,6 +110,7 @@ export async function createMcpServer(serverArgs, options) {
                 allowlist,
             });
         if (context?.browser !== browser) {
+            context?.dispose();
             context = await McpContext.from(browser, logger, {
                 experimentalDevToolsDebugging: devtools,
                 experimentalIncludeAllPages: serverArgs.experimentalIncludeAllPages,

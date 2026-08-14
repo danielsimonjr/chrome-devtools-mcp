@@ -25,13 +25,17 @@ export class PageCollector {
      * The newer navigations come first.
      */
     storage = [[]];
-    constructor(page, listeners) {
+    constructor(page, listeners, maxResourcesPerNavigation) {
         this.pptrPage = page;
         const idGenerator = createIdGenerator();
         const listenerMap = listeners(value => {
             const withId = value;
             withId[stableIdSymbol] = idGenerator();
             this.storage[0].push(withId);
+            if (maxResourcesPerNavigation !== undefined &&
+                this.storage[0].length > maxResourcesPerNavigation) {
+                this.storage[0].splice(0, this.storage[0].length - maxResourcesPerNavigation);
+            }
         });
         listenerMap['framenavigated'] = (frame) => {
             // Only split the storage on main frame navigation
@@ -191,14 +195,15 @@ class PageEventSubscriber {
     };
 }
 export class NetworkCollector extends PageCollector {
-    constructor(page, listeners = collect => {
+    static MAX_REQUESTS_PER_NAVIGATION = 1_000;
+    constructor(page, maxRequestsPerNavigation = NetworkCollector.MAX_REQUESTS_PER_NAVIGATION, listeners = collect => {
         return {
             request: req => {
                 collect(req);
             },
         };
     }) {
-        super(page, listeners);
+        super(page, listeners, maxRequestsPerNavigation);
     }
     splitAfterNavigation() {
         const requests = this.storage[0];

@@ -3,6 +3,58 @@
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
+    if (value !== null && value !== void 0) {
+        if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
+        var dispose, inner;
+        if (async) {
+            if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
+            dispose = value[Symbol.asyncDispose];
+        }
+        if (dispose === void 0) {
+            if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
+            dispose = value[Symbol.dispose];
+            if (async) inner = dispose;
+        }
+        if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
+        if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
+        env.stack.push({ value: value, dispose: dispose, async: async });
+    }
+    else if (async) {
+        env.stack.push({ async: true });
+    }
+    return value;
+};
+var __disposeResources = (this && this.__disposeResources) || (function (SuppressedError) {
+    return function (env) {
+        function fail(e) {
+            env.error = env.hasError ? new SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
+            env.hasError = true;
+        }
+        var r, s = 0;
+        function next() {
+            while (r = env.stack.pop()) {
+                try {
+                    if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
+                    if (r.dispose) {
+                        var result = r.dispose.call(r.value);
+                        if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
+                    }
+                    else s |= 1;
+                }
+                catch (e) {
+                    fail(e);
+                }
+            }
+            if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
+            if (env.hasError) throw env.error;
+        }
+        return next();
+    };
+})(typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+});
 import { logger } from './utils/logger.js';
 export class WaitForHelper {
     #abortController = new AbortController();
@@ -11,7 +63,9 @@ export class WaitForHelper {
     #stableDomFor;
     #expectNavigationIn;
     #navigationTimeout;
-    #dialogOpened = false;
+    #dialogHandled = false;
+    /** Track all dialogs as they pause the renderer. */
+    #dialogDetected = false;
     #initialUrl;
     constructor(page, cpuTimeoutMultiplier, networkTimeoutMultiplier) {
         this.#stableDomTimeout = 3000 * cpuTimeoutMultiplier;
@@ -27,49 +81,67 @@ export class WaitForHelper {
      * for the DOM to be stable before returning.
      */
     async waitForStableDom() {
-        const stableDomObserver = await this.#page.evaluateHandle(timeout => {
-            let timeoutId;
-            function callback() {
-                clearTimeout(timeoutId);
-                timeoutId = setTimeout(() => {
-                    domObserver.resolver.resolve();
-                    domObserver.observer.disconnect();
-                }, timeout);
+        const env_1 = { stack: [], error: void 0, hasError: false };
+        try {
+            // Bound the setup evaluation against the stable-DOM timeout. Without this
+            // cap a paused renderer (e.g. an open dialog) would make evaluateHandle
+            // hang until protocolTimeout (default 180s) while the tool mutex is held.
+            const stableDomObserver = __addDisposableResource(env_1, await Promise.race([
+                this.#page.evaluateHandle(timeout => {
+                    let timeoutId;
+                    function callback() {
+                        clearTimeout(timeoutId);
+                        timeoutId = setTimeout(() => {
+                            domObserver.resolver.resolve();
+                            domObserver.observer.disconnect();
+                        }, timeout);
+                    }
+                    const domObserver = {
+                        resolver: Promise.withResolvers(),
+                        observer: new MutationObserver(callback),
+                    };
+                    // It's possible that the DOM is not gonna change so we
+                    // need to start the timeout initially.
+                    callback();
+                    domObserver.observer.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                        attributes: true,
+                    });
+                    return domObserver;
+                }, this.#stableDomFor),
+                this.timeout(this.#stableDomTimeout),
+            ]).catch(() => undefined), false);
+            if (!stableDomObserver) {
+                return;
             }
-            const domObserver = {
-                resolver: Promise.withResolvers(),
-                observer: new MutationObserver(callback),
-            };
-            // It's possible that the DOM is not gonna change so we
-            // need to start the timeout initially.
-            callback();
-            domObserver.observer.observe(document.body, {
-                childList: true,
-                subtree: true,
-                attributes: true,
+            this.#abortController.signal.addEventListener('abort', async () => {
+                try {
+                    await stableDomObserver.evaluate(observer => {
+                        observer.observer.disconnect();
+                        observer.resolver.resolve();
+                    });
+                }
+                catch {
+                    // Ignored cleanup errors
+                }
             });
-            return domObserver;
-        }, this.#stableDomFor);
-        this.#abortController.signal.addEventListener('abort', async () => {
-            try {
-                await stableDomObserver.evaluate(observer => {
-                    observer.observer.disconnect();
-                    observer.resolver.resolve();
-                });
-                await stableDomObserver.dispose();
-            }
-            catch {
-                // Ignored cleanup errors
-            }
-        });
-        return Promise.race([
-            stableDomObserver.evaluate(async (observer) => {
-                return await observer.resolver.promise;
-            }),
-            this.timeout(this.#stableDomTimeout).then(() => {
-                throw new Error('Timeout');
-            }),
-        ]);
+            return Promise.race([
+                stableDomObserver.evaluate(async (observer) => {
+                    return await observer.resolver.promise;
+                }),
+                this.timeout(this.#stableDomTimeout).then(() => {
+                    throw new Error('Timeout');
+                }),
+            ]);
+        }
+        catch (e_1) {
+            env_1.error = e_1;
+            env_1.hasError = true;
+        }
+        finally {
+            __disposeResources(env_1);
+        }
     }
     async waitForNavigationStarted() {
         // Currently Puppeteer does not have API
@@ -110,33 +182,35 @@ export class WaitForHelper {
         if (this.#abortController.signal.aborted) {
             throw new Error("Can't re-use a WaitForHelper");
         }
-        if (options?.handleDialog) {
-            const dialogHandler = (dialog) => {
-                let actionToTake;
-                if (typeof options.handleDialog === 'object') {
-                    actionToTake = options.handleDialog[dialog.type()];
+        const dialogHandler = (dialog) => {
+            this.#dialogDetected = true;
+            if (!options?.handleDialog) {
+                return;
+            }
+            let actionToTake;
+            if (typeof options.handleDialog === 'object') {
+                actionToTake = options.handleDialog[dialog.type()];
+            }
+            else {
+                actionToTake = options.handleDialog;
+            }
+            if (actionToTake) {
+                this.#dialogHandled = true;
+                if (actionToTake === 'dismiss') {
+                    void dialog.dismiss();
+                }
+                else if (actionToTake === 'accept') {
+                    void dialog.accept();
                 }
                 else {
-                    actionToTake = options.handleDialog;
+                    void dialog.accept(actionToTake);
                 }
-                if (actionToTake) {
-                    this.#dialogOpened = true;
-                    if (actionToTake === 'dismiss') {
-                        void dialog.dismiss();
-                    }
-                    else if (actionToTake === 'accept') {
-                        void dialog.accept();
-                    }
-                    else {
-                        void dialog.accept(actionToTake);
-                    }
-                }
-            };
-            this.#page.on('dialog', dialogHandler);
-            this.#abortController.signal.addEventListener('abort', () => {
-                this.#page.off('dialog', dialogHandler);
-            });
-        }
+            }
+        };
+        this.#page.on('dialog', dialogHandler);
+        this.#abortController.signal.addEventListener('abort', () => {
+            this.#page.off('dialog', dialogHandler);
+        });
         const navigationFinished = this.waitForNavigationStarted()
             .then(navigationStated => {
             if (navigationStated) {
@@ -158,7 +232,7 @@ export class WaitForHelper {
         }
         try {
             await navigationFinished;
-            if (this.#dialogOpened) {
+            if (this.#dialogDetected) {
                 return this.#getResult();
             }
             // Wait for stable dom after navigation so we execute in
@@ -179,7 +253,7 @@ export class WaitForHelper {
             ...(urlAfterAction !== this.#initialUrl
                 ? { navigatedToUrl: urlAfterAction }
                 : {}),
-            dialogHandled: this.#dialogOpened,
+            dialogHandled: this.#dialogHandled,
         };
     }
 }
