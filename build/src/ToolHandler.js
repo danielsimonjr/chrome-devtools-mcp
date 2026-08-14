@@ -6,7 +6,7 @@
 import { McpResponse } from './McpResponse.js';
 import { SlimMcpResponse } from './SlimMcpResponse.js';
 import { ClearcutLogger } from './telemetry/ClearcutLogger.js';
-import { bucketizeLatency } from './telemetry/transformation.js';
+import { bucketizeLatency, buildContext } from './telemetry/transformation.js';
 import { zod } from './third_party/index.js';
 import { labels, OFF_BY_DEFAULT_CATEGORIES } from './tools/categories.js';
 import { pageIdSchema } from './tools/ToolDefinition.js';
@@ -138,6 +138,8 @@ export class ToolHandler {
         const guard = await this.toolMutex.acquire();
         const startTime = Date.now();
         let success = false;
+        let devToolsData;
+        let pageUrl;
         try {
             logger?.(`${this.tool.name} request: ${JSON.stringify(params, null, '  ')}`);
             const context = await this.getContext();
@@ -149,6 +151,7 @@ export class ToolHandler {
             if (context.consumeReconnectNotice()) {
                 response.setReconnectNotice();
             }
+            let page;
             try {
                 if (this.tool.verifyFilesSchema) {
                     for (const key of this.tool.verifyFilesSchema) {
@@ -158,11 +161,12 @@ export class ToolHandler {
                 }
                 if (isPageScopedTool(this.tool)) {
                     const pageId = typeof params.pageId === 'number' ? params.pageId : undefined;
-                    const page = this.serverArgs.experimentalPageIdRouting &&
-                        pageId !== undefined &&
-                        !this.serverArgs.slim
-                        ? context.getPageById(pageId)
-                        : context.getSelectedMcpPage();
+                    page =
+                        this.serverArgs.experimentalPageIdRouting &&
+                            pageId !== undefined &&
+                            !this.serverArgs.slim
+                            ? context.getPageById(pageId)
+                            : context.getSelectedMcpPage();
                     response.setPage(page);
                     if (this.tool.blockedByDialog) {
                         page.throwIfDialogOpen();
@@ -181,6 +185,11 @@ export class ToolHandler {
             catch (err) {
                 response.setError(err);
             }
+            devToolsData = await context.getDevToolsData(page);
+            const targetPage = page ?? context.getSelectedMcpPage();
+            if (targetPage?.pptrPage?.isClosed() === false) {
+                pageUrl = targetPage.pptrPage.url();
+            }
             // Resolve data format: --experimentalDataFormat takes precedence, fall back to legacy --experimentalToonFormat
             let dataFormat = 'default';
             if (this.serverArgs.experimentalDataFormat) {
@@ -189,7 +198,7 @@ export class ToolHandler {
             else if (this.serverArgs.experimentalToonFormat) {
                 dataFormat = 'toon';
             }
-            const { content, structuredContent } = await response.handle(this.tool.name, context, dataFormat);
+            const { content, structuredContent } = await response.handle(context, dataFormat);
             const result = {
                 content,
             };
@@ -219,14 +228,16 @@ export class ToolHandler {
             };
         }
         finally {
+            const context = buildContext(devToolsData, pageUrl);
             void ClearcutLogger.get()?.logToolInvocation({
                 toolName: this.tool.name,
                 params,
                 schema: this.inputSchema,
                 success,
                 latencyMs: bucketizeLatency(Date.now() - startTime),
+                context,
             });
-            guard.dispose();
+            guard[Symbol.dispose]();
         }
     }
 }

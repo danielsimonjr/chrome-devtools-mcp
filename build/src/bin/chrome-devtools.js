@@ -6,8 +6,8 @@
  */
 process.title = 'chrome-devtools';
 import process from 'node:process';
-import { startDaemon, stopDaemon, sendCommand, handleResponse, } from '../daemon/client.js';
-import { isDaemonRunning, serializeArgs } from '../daemon/utils.js';
+import { startDaemon, stopDaemon, sendCommand, handleResponse, verifyDaemonVersion, } from '../daemon/client.js';
+import { isDaemonRunning, serializeArgs, assertValidSessionId, } from '../daemon/utils.js';
 import { logDisclaimers } from '../index.js';
 import { hideBin, yargs } from '../third_party/index.js';
 import { checkForUpdates } from '../utils/check-for-updates.js';
@@ -51,6 +51,10 @@ const y = yargs(hideBin(process.argv))
     description: 'Session ID for daemon scoping',
     default: '',
     hidden: true,
+    coerce: (sessionId) => {
+        assertValidSessionId(sessionId);
+        return sessionId;
+    },
 })
     .demandCommand()
     .version(VERSION)
@@ -108,6 +112,9 @@ y.command('status', 'Checks if chrome-devtools-mcp is running', y => y, async (a
             const data = JSON.parse(response.result);
             console.log(`pid=${data.pid} socket=${data.socketPath} start-date=${data.startDate} version=${data.version}`);
             console.log(`args=${JSON.stringify(data.args)}`);
+            if (data.version !== VERSION) {
+                console.warn(`Warning: Daemon server version (${data.version}) does not match CLI version (${VERSION}). Run 'chrome-devtools start' to update and restart the daemon.`);
+            }
         }
         else {
             console.error('Error:', response.error);
@@ -181,8 +188,11 @@ for (const [commandName, commandDef] of Object.entries(commands)) {
     }, async (argv) => {
         const sessionId = argv.sessionId;
         try {
+            const versionWarningPromise = isDaemonRunning(sessionId)
+                ? verifyDaemonVersion(sessionId, VERSION)
+                : Promise.resolve(undefined);
             if (!isDaemonRunning(sessionId)) {
-                await start([], sessionId);
+                await start(serializeArgs(cliOptions, argv), sessionId);
             }
             const commandArgs = {};
             for (const argName of Object.keys(args)) {
@@ -200,6 +210,12 @@ for (const [commandName, commandDef] of Object.entries(commands)) {
             }
             else {
                 console.error('Error:', response.error);
+            }
+            const versionWarning = await versionWarningPromise;
+            if (versionWarning) {
+                console.warn(versionWarning);
+            }
+            if (!response.success) {
                 process.exit(1);
             }
         }

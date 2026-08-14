@@ -64,10 +64,32 @@ export class TestServer {
     restore() {
         this.#routes = {};
     }
-    start() {
-        return new Promise(res => {
-            this.#server.listen(this.#port, res);
-        });
+    async start() {
+        let retries = 5;
+        while (retries > 0) {
+            try {
+                await new Promise((res, rej) => {
+                    this.#server.once('error', rej);
+                    this.#server.listen(this.#port, () => {
+                        this.#server.off('error', rej);
+                        res();
+                    });
+                });
+                return;
+            }
+            catch (err) {
+                if (err instanceof Error &&
+                    'code' in err &&
+                    err.code === 'EADDRINUSE') {
+                    retries--;
+                    this.#port = TestServer.randomPort();
+                }
+                else {
+                    throw err;
+                }
+            }
+        }
+        throw new Error('Failed to bind to a port after 5 retries');
     }
     stop() {
         return new Promise((res, rej) => {

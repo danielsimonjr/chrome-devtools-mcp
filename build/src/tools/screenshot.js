@@ -3,6 +3,58 @@
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
+    if (value !== null && value !== void 0) {
+        if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
+        var dispose, inner;
+        if (async) {
+            if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
+            dispose = value[Symbol.asyncDispose];
+        }
+        if (dispose === void 0) {
+            if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
+            dispose = value[Symbol.dispose];
+            if (async) inner = dispose;
+        }
+        if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
+        if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
+        env.stack.push({ value: value, dispose: dispose, async: async });
+    }
+    else if (async) {
+        env.stack.push({ async: true });
+    }
+    return value;
+};
+var __disposeResources = (this && this.__disposeResources) || (function (SuppressedError) {
+    return function (env) {
+        function fail(e) {
+            env.error = env.hasError ? new SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
+            env.hasError = true;
+        }
+        var r, s = 0;
+        function next() {
+            while (r = env.stack.pop()) {
+                try {
+                    if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
+                    if (r.dispose) {
+                        var result = r.dispose.call(r.value);
+                        if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
+                    }
+                    else s |= 1;
+                }
+                catch (e) {
+                    fail(e);
+                }
+            }
+            if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
+            if (env.hasError) throw env.error;
+        }
+        return next();
+    };
+})(typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+});
 import { zod } from '../third_party/index.js';
 import { ToolCategory } from './categories.js';
 import { definePageTool } from './ToolDefinition.js';
@@ -22,10 +74,20 @@ async function getSourceBox(page, element, fullPage) {
         return { x: 0, y: 0, width: dims.width, height: dims.height };
     }
     const viewport = page.viewport();
-    if (!viewport) {
+    if (viewport) {
+        return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+    }
+    // The browser is launched and connected with `defaultViewport: null`, so
+    // `page.viewport()` stays null until something emulates one. Fall back to the
+    // window's own dimensions, which is the area a viewport screenshot captures.
+    const dims = await page.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+    }));
+    if (dims.width <= 0 || dims.height <= 0) {
         return undefined;
     }
-    return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+    return { x: 0, y: 0, width: dims.width, height: dims.height };
 }
 function computeDownscaleClip(box, maxWidth, maxHeight) {
     const widthScale = maxWidth !== undefined ? Math.min(1, maxWidth / box.width) : 1;
@@ -84,84 +146,97 @@ export const screenshot = definePageTool(args => {
         blockedByDialog: true,
         verifyFilesSchema: ['filePath'],
         handler: async (request, response, context) => {
-            if (request.params.uid && request.params.fullPage) {
-                throw new Error('Providing both "uid" and "fullPage" is not allowed.');
-            }
-            const page = request.page.pptrPage;
-            const element = request.params.uid
-                ? await request.page.getElementByUid(request.params.uid)
-                : undefined;
-            const format = request.params.format;
-            const quality = format === 'png'
-                ? undefined
-                : (request.params.quality ?? screenshotQuality);
-            const fullPage = request.params.fullPage ?? false;
-            // Compute a downscale clip when --screenshot-max-width or
-            // --screenshot-max-height is set and the source exceeds either bound.
-            // The smaller scale factor wins so both bounds are respected while
-            // preserving aspect ratio.
-            let clip;
-            if (screenshotMaxWidth !== undefined ||
-                screenshotMaxHeight !== undefined) {
-                const box = await getSourceBox(page, element, fullPage);
-                if (box) {
-                    clip = computeDownscaleClip(box, screenshotMaxWidth, screenshotMaxHeight);
+            const env_1 = { stack: [], error: void 0, hasError: false };
+            try {
+                if (request.params.uid && request.params.fullPage) {
+                    throw new Error('Providing both "uid" and "fullPage" is not allowed.');
+                }
+                const page = request.page.pptrPage;
+                const element = __addDisposableResource(env_1, request.params.uid
+                    ? await request.page.getElementByUid(request.params.uid)
+                    : undefined, false);
+                const format = request.params.format;
+                const quality = format === 'png'
+                    ? undefined
+                    : (request.params.quality ?? screenshotQuality);
+                const fullPage = request.params.fullPage ?? false;
+                // `getElementByUid` mints a fresh ElementHandle per call, so dispose it
+                // once the capture is done to avoid leaking a remote object for the life
+                // of the page's execution context.
+                let screenshot;
+                // Compute a downscale clip when --screenshot-max-width or
+                // --screenshot-max-height is set and the source exceeds either bound.
+                // The smaller scale factor wins so both bounds are respected while
+                // preserving aspect ratio.
+                let clip;
+                if (screenshotMaxWidth !== undefined ||
+                    screenshotMaxHeight !== undefined) {
+                    const box = await getSourceBox(page, element, fullPage);
+                    if (box) {
+                        clip = computeDownscaleClip(box, screenshotMaxWidth, screenshotMaxHeight);
+                    }
+                }
+                if (clip) {
+                    // page.screenshot with clip lets the CDP scale param downscale the
+                    // capture for viewport, full-page and element shots alike. We rely on
+                    // Puppeteer's default of captureBeyondViewport=true when a clip is
+                    // present so element/full-page captures below the fold still work.
+                    screenshot = await page.screenshot({
+                        type: format,
+                        quality,
+                        optimizeForSpeed: true,
+                        clip,
+                    });
+                }
+                else if (element) {
+                    screenshot = await element.screenshot({
+                        type: format,
+                        quality,
+                        optimizeForSpeed: true,
+                    });
+                }
+                else {
+                    screenshot = await page.screenshot({
+                        type: format,
+                        fullPage,
+                        quality,
+                        optimizeForSpeed: true,
+                    });
+                }
+                if (request.params.uid) {
+                    response.appendResponseLine(`Took a screenshot of node with uid "${request.params.uid}".`);
+                }
+                else if (fullPage) {
+                    response.appendResponseLine('Took a screenshot of the full current page.');
+                }
+                else {
+                    response.appendResponseLine("Took a screenshot of the current page's viewport.");
+                }
+                // Narrow `format` at the point of use: in the factory form of
+                // definePageTool TS widens the Schema generic, which loses the literal
+                // union from zod.enum on request.params.format.
+                const extension = format === 'jpeg' ? '.jpeg' : format === 'webp' ? '.webp' : '.png';
+                if (request.params.filePath) {
+                    const result = await context.saveFile(screenshot, request.params.filePath, extension);
+                    response.appendResponseLine(`Saved screenshot to ${result.filename}.`);
+                }
+                else if (screenshot.length >= 2_000_000) {
+                    const { filepath } = await context.saveTemporaryFile(screenshot, `screenshot${extension}`);
+                    response.appendResponseLine(`Saved screenshot to ${filepath}.`);
+                }
+                else {
+                    response.attachImage({
+                        mimeType: `image/${format}`,
+                        data: Buffer.from(screenshot).toString('base64'),
+                    });
                 }
             }
-            let screenshot;
-            if (clip) {
-                // page.screenshot with clip lets the CDP scale param downscale the
-                // capture for viewport, full-page and element shots alike. We rely on
-                // Puppeteer's default of captureBeyondViewport=true when a clip is
-                // present so element/full-page captures below the fold still work.
-                screenshot = await page.screenshot({
-                    type: format,
-                    quality,
-                    optimizeForSpeed: true,
-                    clip,
-                });
+            catch (e_1) {
+                env_1.error = e_1;
+                env_1.hasError = true;
             }
-            else if (element) {
-                screenshot = await element.screenshot({
-                    type: format,
-                    quality,
-                    optimizeForSpeed: true,
-                });
-            }
-            else {
-                screenshot = await page.screenshot({
-                    type: format,
-                    fullPage,
-                    quality,
-                    optimizeForSpeed: true,
-                });
-            }
-            if (request.params.uid) {
-                response.appendResponseLine(`Took a screenshot of node with uid "${request.params.uid}".`);
-            }
-            else if (fullPage) {
-                response.appendResponseLine('Took a screenshot of the full current page.');
-            }
-            else {
-                response.appendResponseLine("Took a screenshot of the current page's viewport.");
-            }
-            // Narrow `format` at the point of use: in the factory form of
-            // definePageTool TS widens the Schema generic, which loses the literal
-            // union from zod.enum on request.params.format.
-            const extension = format === 'jpeg' ? '.jpeg' : format === 'webp' ? '.webp' : '.png';
-            if (request.params.filePath) {
-                const result = await context.saveFile(screenshot, request.params.filePath, extension);
-                response.appendResponseLine(`Saved screenshot to ${result.filename}.`);
-            }
-            else if (screenshot.length >= 2_000_000) {
-                const { filepath } = await context.saveTemporaryFile(screenshot, `screenshot${extension}`);
-                response.appendResponseLine(`Saved screenshot to ${filepath}.`);
-            }
-            else {
-                response.attachImage({
-                    mimeType: `image/${format}`,
-                    data: Buffer.from(screenshot).toString('base64'),
-                });
+            finally {
+                __disposeResources(env_1);
             }
         },
     };

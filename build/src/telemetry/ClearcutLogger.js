@@ -87,6 +87,9 @@ export class ClearcutLogger {
             success: args.success,
             latency_ms: args.latencyMs,
         };
+        if (Object.keys(args.context).length > 0) {
+            tool_invocation.context = args.context;
+        }
         if (Object.keys(args.params).length > 0) {
             tool_invocation.tool_params = {
                 [`${sanitizedToolName}_params`]: sanitizeParams(args.params, args.schema),

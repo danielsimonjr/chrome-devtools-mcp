@@ -308,7 +308,16 @@ export const commands = {
                     'objectsRetainedByConsole',
                     'objectsRetainedByEventHandlers',
                     'objectsRetainedByContexts',
+                    'sharedNativeContext',
+                    'noNativeContext',
+                    'attributedToSpecificNativeContext',
                 ],
+            },
+            objectId: {
+                name: 'objectId',
+                type: 'number',
+                description: 'The object ID (nodeId) of the specific native context to filter by when filterName is attributedToSpecificNativeContext.',
+                required: false,
             },
             pageIdx: {
                 name: 'pageIdx',
@@ -344,7 +353,16 @@ export const commands = {
                     'objectsRetainedByConsole',
                     'objectsRetainedByEventHandlers',
                     'objectsRetainedByContexts',
+                    'sharedNativeContext',
+                    'noNativeContext',
+                    'attributedToSpecificNativeContext',
                 ],
+            },
+            objectId: {
+                name: 'objectId',
+                type: 'number',
+                description: 'The object ID (nodeId) of the specific native context to filter by when filterName is attributedToSpecificNativeContext.',
+                required: false,
             },
             pageIdx: {
                 name: 'pageIdx',
@@ -432,6 +450,24 @@ export const commands = {
             },
         },
     },
+    get_heapsnapshot_object_details: {
+        description: 'Loads a memory heapsnapshot and returns detailed information about a specific object by its node ID, including size, type, distance, and DOM detachedness. (requires flag: --memoryDebugging=true)',
+        category: 'Memory',
+        args: {
+            filePath: {
+                name: 'filePath',
+                type: 'string',
+                description: 'A path to a .heapsnapshot file to read.',
+                required: true,
+            },
+            nodeId: {
+                name: 'nodeId',
+                type: 'number',
+                description: 'The node ID to get object details for.',
+                required: true,
+            },
+        },
+    },
     get_heapsnapshot_retainers: {
         description: 'Loads a memory heapsnapshot and returns retainers for a specific node ID. (requires flag: --memoryDebugging=true)',
         category: 'Memory',
@@ -499,7 +535,7 @@ export const commands = {
         },
     },
     get_heapsnapshot_summary: {
-        description: 'Loads a memory heapsnapshot and returns snapshot summary stats. (requires flag: --memoryDebugging=true)',
+        description: 'Loads a memory heapsnapshot and returns snapshot summary stats, including native contexts and their sizes. (requires flag: --memoryDebugging=true)',
         category: 'Memory',
         args: {
             filePath: {
@@ -659,7 +695,7 @@ export const commands = {
         args: {},
     },
     list_network_requests: {
-        description: 'List all requests for the currently selected page since the last navigation.',
+        description: 'Lists the most recent requests for the currently selected page since the last navigation.',
         category: 'Network',
         args: {
             pageSize: {

@@ -3,6 +3,58 @@
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
+    if (value !== null && value !== void 0) {
+        if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
+        var dispose, inner;
+        if (async) {
+            if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
+            dispose = value[Symbol.asyncDispose];
+        }
+        if (dispose === void 0) {
+            if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
+            dispose = value[Symbol.dispose];
+            if (async) inner = dispose;
+        }
+        if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
+        if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
+        env.stack.push({ value: value, dispose: dispose, async: async });
+    }
+    else if (async) {
+        env.stack.push({ async: true });
+    }
+    return value;
+};
+var __disposeResources = (this && this.__disposeResources) || (function (SuppressedError) {
+    return function (env) {
+        function fail(e) {
+            env.error = env.hasError ? new SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
+            env.hasError = true;
+        }
+        var r, s = 0;
+        function next() {
+            while (r = env.stack.pop()) {
+                try {
+                    if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
+                    if (r.dispose) {
+                        var result = r.dispose.call(r.value);
+                        if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
+                    }
+                    else s |= 1;
+                }
+                catch (e) {
+                    fail(e);
+                }
+            }
+            if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
+            if (env.hasError) throw env.error;
+        }
+        return next();
+    };
+})(typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+});
 import { zod } from '../third_party/index.js';
 import { parseKey } from '../utils/keyboard.js';
 import { logger } from '../utils/logger.js';
@@ -27,41 +79,41 @@ function handleActionError(error, uid) {
     });
 }
 async function selectNativeSelectOption(handle) {
-    const selectHandle = await handle.evaluateHandle(node => {
-        if (!(node instanceof HTMLOptionElement)) {
-            return null;
-        }
-        const select = node.closest('select');
-        if (!select || select.multiple || select.disabled || node.disabled) {
-            return null;
-        }
-        const parentElement = node.parentElement;
-        if (parentElement instanceof HTMLOptGroupElement &&
-            parentElement.disabled) {
-            return null;
-        }
-        return select;
-    });
+    const env_1 = { stack: [], error: void 0, hasError: false };
     try {
-        const select = selectHandle.asElement();
+        const selectHandle = __addDisposableResource(env_1, await handle.evaluateHandle(node => {
+            if (!(node instanceof HTMLOptionElement)) {
+                return null;
+            }
+            const select = node.closest('select');
+            if (!select || select.multiple || select.disabled || node.disabled) {
+                return null;
+            }
+            const parentElement = node.parentElement;
+            if (parentElement instanceof HTMLOptGroupElement &&
+                parentElement.disabled) {
+                return null;
+            }
+            return select;
+        }), false);
+        const select = __addDisposableResource(env_1, selectHandle.asElement(), false);
         if (!select) {
             return false;
         }
-        const valueHandle = await handle.getProperty('value');
-        try {
-            const value = await valueHandle.jsonValue();
-            if (typeof value !== 'string') {
-                return false;
-            }
-            await select.asLocator().fill(value);
+        const valueHandle = __addDisposableResource(env_1, await handle.getProperty('value'), false);
+        const value = await valueHandle.jsonValue();
+        if (typeof value !== 'string') {
+            return false;
         }
-        finally {
-            void valueHandle.dispose();
-        }
+        await select.asLocator().fill(value);
         return true;
     }
+    catch (e_1) {
+        env_1.error = e_1;
+        env_1.hasError = true;
+    }
     finally {
-        void selectHandle.dispose();
+        __disposeResources(env_1);
     }
 }
 export const click = definePageTool({
@@ -81,33 +133,40 @@ export const click = definePageTool({
     blockedByDialog: true,
     verifyFilesSchema: [],
     handler: async (request, response) => {
-        const uid = request.params.uid;
-        const handle = await request.page.getElementByUid(uid);
-        const aXNode = request.page.getAXNodeByUid(uid);
-        const shouldSelectNativeOption = !request.params.dblClick && aXNode?.role === 'option';
+        const env_2 = { stack: [], error: void 0, hasError: false };
         try {
-            const result = await request.page.waitForEventsAfterAction(async () => {
-                if (shouldSelectNativeOption &&
-                    (await selectNativeSelectOption(handle))) {
-                    return;
-                }
-                await handle.asLocator().click({
-                    count: request.params.dblClick ? 2 : 1,
+            const uid = request.params.uid;
+            const handle = __addDisposableResource(env_2, await request.page.getElementByUid(uid), false);
+            const aXNode = request.page.getAXNodeByUid(uid);
+            const shouldSelectNativeOption = !request.params.dblClick && aXNode?.role === 'option';
+            try {
+                const result = await request.page.waitForEventsAfterAction(async () => {
+                    if (shouldSelectNativeOption &&
+                        (await selectNativeSelectOption(handle))) {
+                        return;
+                    }
+                    await handle.asLocator().click({
+                        count: request.params.dblClick ? 2 : 1,
+                    });
                 });
-            });
-            response.appendResponseLine(request.params.dblClick
-                ? `Successfully double clicked on the element`
-                : `Successfully clicked on the element`);
-            response.attachWaitForResult(result);
-            if (request.params.includeSnapshot) {
-                response.includeSnapshot();
+                response.appendResponseLine(request.params.dblClick
+                    ? `Successfully double clicked on the element`
+                    : `Successfully clicked on the element`);
+                response.attachWaitForResult(result);
+                if (request.params.includeSnapshot) {
+                    response.includeSnapshot();
+                }
+            }
+            catch (error) {
+                handleActionError(error, uid);
             }
         }
-        catch (error) {
-            handleActionError(error, uid);
+        catch (e_2) {
+            env_2.error = e_2;
+            env_2.hasError = true;
         }
         finally {
-            void handle.dispose();
+            __disposeResources(env_2);
         }
     },
 });
@@ -159,23 +218,30 @@ export const hover = definePageTool({
     blockedByDialog: true,
     verifyFilesSchema: [],
     handler: async (request, response) => {
-        const uid = request.params.uid;
-        const handle = await request.page.getElementByUid(uid);
+        const env_3 = { stack: [], error: void 0, hasError: false };
         try {
-            const result = await request.page.waitForEventsAfterAction(async () => {
-                await handle.asLocator().hover();
-            });
-            response.appendResponseLine(`Successfully hovered over the element`);
-            response.attachWaitForResult(result);
-            if (request.params.includeSnapshot) {
-                response.includeSnapshot();
+            const uid = request.params.uid;
+            const handle = __addDisposableResource(env_3, await request.page.getElementByUid(uid), false);
+            try {
+                const result = await request.page.waitForEventsAfterAction(async () => {
+                    await handle.asLocator().hover();
+                });
+                response.appendResponseLine(`Successfully hovered over the element`);
+                response.attachWaitForResult(result);
+                if (request.params.includeSnapshot) {
+                    response.includeSnapshot();
+                }
+            }
+            catch (error) {
+                handleActionError(error, uid);
             }
         }
-        catch (error) {
-            handleActionError(error, uid);
+        catch (e_3) {
+            env_3.error = e_3;
+            env_3.hasError = true;
         }
         finally {
-            void handle.dispose();
+            __disposeResources(env_3);
         }
     },
 });
@@ -187,25 +253,35 @@ async function selectOption(handle, aXNode, value) {
     let optionFound = false;
     for (const child of aXNode.children) {
         if (child.role === 'option' && child.name === value && child.value) {
-            optionFound = true;
-            const childHandle = await child.elementHandle();
-            if (childHandle) {
-                try {
-                    const childValueHandle = await childHandle.getProperty('value');
+            const env_4 = { stack: [], error: void 0, hasError: false };
+            try {
+                optionFound = true;
+                const childHandle = __addDisposableResource(env_4, await child.elementHandle(), false);
+                if (childHandle) {
+                    const env_5 = { stack: [], error: void 0, hasError: false };
                     try {
+                        const childValueHandle = __addDisposableResource(env_5, await childHandle.getProperty('value'), false);
                         const childValue = await childValueHandle.jsonValue();
                         if (childValue) {
                             await handle.asLocator().fill(childValue.toString());
                         }
+                        break;
+                    }
+                    catch (e_4) {
+                        env_5.error = e_4;
+                        env_5.hasError = true;
                     }
                     finally {
-                        void childValueHandle.dispose();
+                        __disposeResources(env_5);
                     }
-                    break;
                 }
-                finally {
-                    void childHandle.dispose();
-                }
+            }
+            catch (e_5) {
+                env_4.error = e_5;
+                env_4.hasError = true;
+            }
+            finally {
+                __disposeResources(env_4);
             }
         }
     }
@@ -217,43 +293,50 @@ function hasOptionChildren(aXNode) {
     return aXNode.children.some(child => child.role === 'option');
 }
 async function fillFormElement(uid, value, context, page) {
-    const handle = await page.getElementByUid(uid);
+    const env_6 = { stack: [], error: void 0, hasError: false };
     try {
-        const aXNode = page.getAXNodeByUid(uid);
-        // We assume that combobox needs to be handled as select if it has
-        // role='combobox' and option children.
-        if (aXNode && aXNode.role === 'combobox' && hasOptionChildren(aXNode)) {
-            await selectOption(handle, aXNode, value);
-        }
-        else {
-            const isToggle = await handle.evaluate(el => {
-                if (el instanceof HTMLInputElement) {
-                    return el.type === 'checkbox' || el.type === 'radio';
-                }
-                const role = el.getAttribute('role');
-                return role === 'checkbox' || role === 'radio' || role === 'switch';
-            });
-            if (isToggle) {
-                if (['true', 'false'].includes(value)) {
-                    await handle.asLocator().fill(value === 'true');
-                }
-                else {
-                    throw new Error(`Checkboxes, radio boxes and toggles require "true" or "false" value, but ${value} was used`);
-                }
+        const handle = __addDisposableResource(env_6, await page.getElementByUid(uid), false);
+        try {
+            const aXNode = page.getAXNodeByUid(uid);
+            // We assume that combobox needs to be handled as select if it has
+            // role='combobox' and option children.
+            if (aXNode && aXNode.role === 'combobox' && hasOptionChildren(aXNode)) {
+                await selectOption(handle, aXNode, value);
             }
             else {
-                // Increase timeout for longer input values.
-                const timeoutPerChar = 10; // ms
-                const fillTimeout = page.pptrPage.getDefaultTimeout() + value.length * timeoutPerChar;
-                await handle.asLocator().setTimeout(fillTimeout).fill(value);
+                const isToggle = await handle.evaluate(el => {
+                    if (el instanceof HTMLInputElement) {
+                        return el.type === 'checkbox' || el.type === 'radio';
+                    }
+                    const role = el.getAttribute('role');
+                    return role === 'checkbox' || role === 'radio' || role === 'switch';
+                });
+                if (isToggle) {
+                    if (['true', 'false'].includes(value)) {
+                        await handle.asLocator().fill(value === 'true');
+                    }
+                    else {
+                        throw new Error(`Checkboxes, radio boxes and toggles require "true" or "false" value, but ${value} was used`);
+                    }
+                }
+                else {
+                    // Increase timeout for longer input values.
+                    const timeoutPerChar = 10; // ms
+                    const fillTimeout = page.pptrPage.getDefaultTimeout() + value.length * timeoutPerChar;
+                    await handle.asLocator().setTimeout(fillTimeout).fill(value);
+                }
             }
         }
+        catch (error) {
+            handleActionError(error, uid);
+        }
     }
-    catch (error) {
-        handleActionError(error, uid);
+    catch (e_6) {
+        env_6.error = e_6;
+        env_6.hasError = true;
     }
     finally {
-        void handle.dispose();
+        __disposeResources(env_6);
     }
 }
 export const fill = definePageTool({
@@ -326,9 +409,10 @@ export const drag = definePageTool({
     blockedByDialog: true,
     verifyFilesSchema: [],
     handler: async (request, response) => {
-        const fromHandle = await request.page.getElementByUid(request.params.from_uid);
-        const toHandle = await request.page.getElementByUid(request.params.to_uid);
+        const env_7 = { stack: [], error: void 0, hasError: false };
         try {
+            const fromHandle = __addDisposableResource(env_7, await request.page.getElementByUid(request.params.from_uid), false);
+            const toHandle = __addDisposableResource(env_7, await request.page.getElementByUid(request.params.to_uid), false);
             const result = await request.page.waitForEventsAfterAction(async () => {
                 await fromHandle.drag(toHandle);
                 await new Promise(resolve => setTimeout(resolve, 50));
@@ -340,9 +424,12 @@ export const drag = definePageTool({
                 response.includeSnapshot();
             }
         }
+        catch (e_7) {
+            env_7.error = e_7;
+            env_7.hasError = true;
+        }
         finally {
-            void fromHandle.dispose();
-            void toHandle.dispose();
+            __disposeResources(env_7);
         }
     },
 });
@@ -400,9 +487,10 @@ export const uploadFile = definePageTool({
     blockedByDialog: true,
     verifyFilesSchema: ['filePath'],
     handler: async (request, response) => {
-        const { uid, filePath } = request.params;
-        const handle = (await request.page.getElementByUid(uid));
+        const env_8 = { stack: [], error: void 0, hasError: false };
         try {
+            const { uid, filePath } = request.params;
+            const handle = __addDisposableResource(env_8, (await request.page.getElementByUid(uid)), false);
             try {
                 await handle.uploadFile(filePath);
             }
@@ -426,8 +514,12 @@ export const uploadFile = definePageTool({
             }
             response.appendResponseLine(`File uploaded from ${filePath}.`);
         }
+        catch (e_8) {
+            env_8.error = e_8;
+            env_8.hasError = true;
+        }
         finally {
-            void handle.dispose();
+            __disposeResources(env_8);
         }
     },
 });

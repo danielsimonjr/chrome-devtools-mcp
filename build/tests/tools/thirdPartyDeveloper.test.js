@@ -39,7 +39,7 @@ describe('thirdPartyDeveloperTools', () => {
                     });
                 });
                 await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-                const result = await response.handle('list_3p_developer_tools', context);
+                const result = await response.handle(context);
                 // @ts-expect-error `structuredContent` has `thirdPartyDeveloperTools`
                 const groups = result.structuredContent.thirdPartyDeveloperTools;
                 assert.strictEqual(groups.length, 1);
@@ -68,7 +68,7 @@ describe('thirdPartyDeveloperTools', () => {
                     });
                 });
                 await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-                const result = await response.handle('list_3p_developer_tools', context);
+                const result = await response.handle(context);
                 assert.ok(result.structuredContent);
                 assert.deepStrictEqual(result.structuredContent.thirdPartyDeveloperTools, undefined);
             }, undefined, { categoryExperimentalThirdParty: true });
@@ -83,7 +83,7 @@ describe('thirdPartyDeveloperTools', () => {
                     });
                 });
                 await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-                const result = await response.handle('list_3p_developer_tools', context);
+                const result = await response.handle(context);
                 assert.ok(result.structuredContent);
                 assert.deepStrictEqual(result.structuredContent.thirdPartyDeveloperTools, undefined);
             }, undefined, { categoryExperimentalThirdParty: true });
@@ -93,7 +93,7 @@ describe('thirdPartyDeveloperTools', () => {
                 const page = await context.newPage();
                 response.setPage(page);
                 await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-                const result = await response.handle('list_3p_developer_tools', context);
+                const result = await response.handle(context);
                 assert.ok(result.structuredContent);
                 assert.deepStrictEqual(result.structuredContent.thirdPartyDeveloperTools, undefined);
             }, undefined, { categoryExperimentalThirdParty: true });
@@ -135,7 +135,7 @@ describe('thirdPartyDeveloperTools', () => {
                     });
                 });
                 await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-                const result = await response.handle('list_3p_developer_tools', context);
+                const result = await response.handle(context);
                 const actualGroups = 
                 // @ts-expect-error structuredContent has `thirdPartyDeveloperTools`
                 result.structuredContent.thirdPartyDeveloperTools;
@@ -168,11 +168,11 @@ describe('thirdPartyDeveloperTools', () => {
                     });
                 });
                 await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-                await response.handle('list_3p_developer_tools', context);
+                await response.handle(context);
                 let groupsLength = await page.pptrPage.evaluate(() => window.__dtmcp?.toolGroups?.length);
                 assert.strictEqual(groupsLength, 1);
                 await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-                await response.handle('list_3p_developer_tools', context);
+                await response.handle(context);
                 groupsLength = await page.pptrPage.evaluate(() => window.__dtmcp?.toolGroups?.length);
                 assert.strictEqual(groupsLength, 1);
             }, undefined, { categoryExperimentalThirdParty: true });
@@ -184,7 +184,7 @@ describe('thirdPartyDeveloperTools', () => {
             response.setPage(page);
             await page.pptrPage.evaluate(evaluateFn);
             await listThirdPartyDeveloperTools.handler({ params: {}, page }, response, context);
-            await response.handle('list_3p_developer_tools', context);
+            await response.handle(context);
         }
         it('executes a tool', async () => {
             await withMcpContext(async (response, context) => {
@@ -598,6 +598,61 @@ describe('thirdPartyDeveloperTools', () => {
                 assert.ok(stubSnapshot.notCalled, 'Expected TextSnapshot.create not to be called');
                 assert.strictEqual(response.responseLines[0], JSON.stringify('simple-result', null, 2));
                 stubSnapshot.restore();
+            }, undefined, { categoryExperimentalThirdParty: true });
+        });
+        it('disposes old handles when executing third party developer tools', async () => {
+            await withMcpContext(async (response, context) => {
+                await setupThirdPartyDeveloperTools(response, context, () => {
+                    const mockToolGroup = {
+                        name: 'test-group',
+                        description: 'test description',
+                        tools: [
+                            {
+                                name: 'test-tool',
+                                description: 'test tool description',
+                                inputSchema: {},
+                                execute: () => {
+                                    const div = document.createElement('div');
+                                    document.body.appendChild(div);
+                                    return div;
+                                },
+                            },
+                        ],
+                    };
+                    window.addEventListener('devtoolstooldiscovery', (e) => {
+                        // @ts-expect-error Event has `respondWith`
+                        e.respondWith(mockToolGroup);
+                    });
+                });
+                const page = context.getSelectedMcpPage();
+                if (!page) {
+                    assert.fail('No page found');
+                }
+                await executeThirdPartyDeveloperTool.handler({
+                    params: {
+                        toolName: 'test-tool',
+                        params: JSON.stringify({}),
+                    },
+                    page,
+                }, response, context);
+                const firstHandles = [...page.extraHandles];
+                assert.strictEqual(firstHandles.length, 1);
+                // @ts-expect-error Internal Puppeteer API
+                assert.ok(!firstHandles[0].disposed);
+                await executeThirdPartyDeveloperTool.handler({
+                    params: {
+                        toolName: 'test-tool',
+                        params: JSON.stringify({}),
+                    },
+                    page,
+                }, response, context);
+                const secondHandles = [...page.extraHandles];
+                assert.strictEqual(secondHandles.length, 1);
+                assert.notStrictEqual(firstHandles[0], secondHandles[0]);
+                // @ts-expect-error Internal Puppeteer API
+                assert.ok(!secondHandles[0].disposed);
+                // @ts-expect-error Internal Puppeteer API
+                assert.ok(firstHandles[0].disposed);
             }, undefined, { categoryExperimentalThirdParty: true });
         });
     });

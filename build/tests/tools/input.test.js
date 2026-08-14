@@ -95,7 +95,7 @@ describe('input', () => {
                     },
                     page: context.getSelectedMcpPage(),
                 }, response, context);
-                const result = await response.handle('click', context);
+                const result = await response.handle(context);
                 const textContent = getTextContent(result.content[0]);
                 const expectedUrl = server.getRoute('/after-click');
                 assert.ok(textContent.includes(`Page navigated to ${expectedUrl}.`), `Expected response to mention navigation to ${expectedUrl}, got: ${textContent}`);
@@ -112,7 +112,7 @@ describe('input', () => {
                     },
                     page: context.getSelectedMcpPage(),
                 }, response, context);
-                const result = await response.handle('click', context);
+                const result = await response.handle(context);
                 const textContent = getTextContent(result.content[0]);
                 assert.ok(!textContent.includes('Page navigated to '), `Did not expect a navigation line, got: ${textContent}`);
             });

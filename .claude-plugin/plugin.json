@@ -4,10 +4,13 @@
   "description": "Reliable automation, in-depth debugging, and performance analysis in Chrome using Chrome DevTools and Puppeteer",
   "mcpServers": {
     "chrome-devtools": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "chrome-devtools-mcp@1.7.0"
-      ]
+        "${CLAUDE_PLUGIN_ROOT}/build/src/bin/chrome-devtools-mcp.js"
+      ],
+      "env": {
+        "_RETRY": "fork-node-launcher-1.7.0"
+      }
     }
   }
 }

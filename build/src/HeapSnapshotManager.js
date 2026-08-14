@@ -26,12 +26,25 @@ export class HeapSnapshotManager {
         });
         return snapshot;
     }
-    async getAggregates(filePath, filterName) {
-        const snapshot = await this.getSnapshot(filePath);
-        const filter = new DevTools.HeapSnapshotModel.HeapSnapshotModel.NodeFilter();
-        if (filterName) {
+    async #applyNodeFilter(snapshot, filter, filterName, objectId) {
+        if (filterName === 'attributedToSpecificNativeContext') {
+            if (objectId === undefined) {
+                throw new Error('objectId is required when filterName is attributedToSpecificNativeContext');
+            }
+            const nodeIndex = await snapshot.nodeIndexForId(objectId);
+            if (nodeIndex === undefined) {
+                throw new Error(`Node with ID ${objectId} not found`);
+            }
+            filter.filterName = `nativeContext_${nodeIndex}`;
+        }
+        else if (filterName) {
             filter.filterName = filterName;
         }
+    }
+    async getAggregates(filePath, filterName, objectId) {
+        const snapshot = await this.getSnapshot(filePath);
+        const filter = new DevTools.HeapSnapshotModel.HeapSnapshotModel.NodeFilter();
+        await this.#applyNodeFilter(snapshot, filter, filterName, objectId);
         const aggregates = await snapshot.aggregatesWithFilter(filter);
         let objectCount = 0;
         let totalSelfSize = 0;
@@ -55,6 +68,10 @@ export class HeapSnapshotManager {
         const snapshot = await this.getSnapshot(filePath);
         return snapshot.staticData;
     }
+    async getNativeContextSizes(filePath) {
+        const snapshot = await this.getSnapshot(filePath);
+        return await snapshot.getNativeContextSizes();
+    }
     async getOrCreateIdForClassKey(filePath, classKey) {
         const cached = this.#getCachedSnapshot(filePath);
         let id = cached.classKeyToId.get(classKey);
@@ -65,12 +82,10 @@ export class HeapSnapshotManager {
         }
         return id;
     }
-    async getNodesById(filePath, id, filterName) {
+    async getNodesById(filePath, id, filterName, objectId) {
         const snapshot = await this.getSnapshot(filePath);
         const filter = new DevTools.HeapSnapshotModel.HeapSnapshotModel.NodeFilter();
-        if (filterName) {
-            filter.filterName = filterName;
-        }
+        await this.#applyNodeFilter(snapshot, filter, filterName, objectId);
         const className = await this.resolveClassKeyFromId(filePath, id);
         if (!className) {
             throw new Error(`Class with ID ${id} not found in heap snapshot`);
@@ -86,6 +101,14 @@ export class HeapSnapshotManager {
         }
         const provider = snapshot.createRetainingEdgesProvider(nodeIndex);
         return await provider.serializeItemsRange(0, Infinity);
+    }
+    async getObjectInfo(filePath, nodeId) {
+        const snapshot = await this.getSnapshot(filePath);
+        const nodeIndex = await snapshot.nodeIndexForId(nodeId);
+        if (nodeIndex === undefined) {
+            throw new Error(`Node with ID ${nodeId} not found`);
+        }
+        return await snapshot.getObjectInfo(nodeIndex);
     }
     async getRetainingPaths(filePath, nodeId, maxDepth, maxNodes, maxSiblings) {
         const snapshot = await this.getSnapshot(filePath);
@@ -178,21 +201,31 @@ export class HeapSnapshotManager {
     async #loadSnapshot(absolutePath, uid) {
         const workerProxy = new DevTools.HeapSnapshotModel.HeapSnapshotProxy.HeapSnapshotWorkerProxy(() => {
             /* noop */
-        }, import.meta.resolve('./third_party/devtools-heap-snapshot-worker.js'));
-        const { promise: snapshotPromise, resolve: resolveSnapshot } = Promise.withResolvers();
-        const loaderProxy = workerProxy.createLoader(uid, snapshotProxy => {
-            resolveSnapshot(snapshotProxy);
-        });
-        const fileStream = fsSync.createReadStream(absolutePath, {
-            encoding: 'utf-8',
-            highWaterMark: 1024 * 1024,
-        });
-        for await (const chunk of fileStream) {
-            await loaderProxy.write(chunk);
+        }, DevTools.Common.Console.Console.instance(), import.meta.resolve('./third_party/devtools-heap-snapshot-worker.js'));
+        try {
+            const { promise: snapshotPromise, resolve: resolveSnapshot } = Promise.withResolvers();
+            const loaderProxy = workerProxy.createLoader(uid, snapshotProxy => {
+                resolveSnapshot(snapshotProxy);
+            });
+            const fileStream = fsSync.createReadStream(absolutePath, {
+                encoding: 'utf-8',
+                highWaterMark: 1024 * 1024,
+            });
+            for await (const chunk of fileStream) {
+                await loaderProxy.write(chunk);
+            }
+            await loaderProxy.close();
+            const snapshot = await snapshotPromise;
+            return { snapshot, worker: workerProxy };
         }
-        await loaderProxy.close();
-        const snapshot = await snapshotPromise;
-        return { snapshot, worker: workerProxy };
+        catch (error) {
+            // The worker is created before the read, and a failed load never reaches
+            // the #snapshots map, so dispose()/disposeAll() can never clean it up.
+            // Dispose it here to avoid leaking a worker on every failed load (e.g. a
+            // missing or invalid .heapsnapshot path).
+            workerProxy.dispose();
+            throw error;
+        }
     }
     async getDuplicateStrings(filePath) {
         const snapshot = await this.getSnapshot(filePath);
@@ -201,7 +234,7 @@ export class HeapSnapshotManager {
     hasSnapshots() {
         return this.#snapshots.size > 0;
     }
-    dispose(filePath) {
+    disposeSnapshot(filePath) {
         const absolutePath = path.resolve(filePath);
         const cached = this.#snapshots.get(absolutePath);
         if (cached) {
@@ -210,6 +243,12 @@ export class HeapSnapshotManager {
             return true;
         }
         return false;
+    }
+    dispose() {
+        for (const cached of this.#snapshots.values()) {
+            cached.worker.dispose();
+        }
+        this.#snapshots.clear();
     }
 }
 //# sourceMappingURL=HeapSnapshotManager.js.map

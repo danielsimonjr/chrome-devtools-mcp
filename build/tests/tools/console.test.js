@@ -61,7 +61,7 @@ describe('console', () => {
                 params: { serviceWorkerId: extensionId },
                 page: context.getSelectedMcpPage(),
             }, response2, context);
-            const formattedResponse = await response2.handle('test', context);
+            const formattedResponse = await response2.handle(context);
             const textContent = getTextContent(formattedResponse.content[0]);
             const sanitizedText = textContent.replaceAll(new RegExp(extensionId, 'g'), '<extension-id>');
             t.assert.snapshot?.(sanitizedText);
@@ -87,7 +87,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.setContent('<script>console.error("This is an error")</script>');
                 await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const textContent = getTextContent(formattedResponse.content[0]);
                 assert.ok(textContent.includes('msgid=1 [error] This is an error'));
             });
@@ -97,7 +97,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.setContent('<script>console.error(new Error("This is an error"))</script>');
                 await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const textContent = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(textContent);
             });
@@ -107,7 +107,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.setContent('<script>throw undefined;</script>');
                 await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const textContent = getTextContent(formattedResponse.content[0]);
                 assert.ok(textContent.includes('msgid=1 [error] Uncaught  (0 args)'));
             });
@@ -124,9 +124,9 @@ describe('console', () => {
                     await page.pptrPage.setContent('<input type="text" name="username" />');
                     await issuePromise;
                     await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
-                    const formattedResponse = await response.handle('test', context);
+                    const formattedResponse = await response.handle(context);
                     const textContent = getTextContent(formattedResponse.content[0]);
-                    assert.ok(textContent.includes(`msgid=1 [issue] An element doesn't have an autocomplete attribute (count: 1)`));
+                    assert.ok(textContent.includes(`msgid=1 [issue] An element doesn’t have an autocomplete attribute (count: 1)`));
                 });
             });
             it('lists issues after a page reload', async () => {
@@ -142,9 +142,9 @@ describe('console', () => {
                     await issuePromise;
                     await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
                     {
-                        const formattedResponse = await response.handle('test', context);
+                        const formattedResponse = await response.handle(context);
                         const textContent = getTextContent(formattedResponse.content[0]);
-                        assert.ok(textContent.includes(`msgid=1 [issue] An element doesn't have an autocomplete attribute (count: 1)`));
+                        assert.ok(textContent.includes(`msgid=1 [issue] An element doesn’t have an autocomplete attribute (count: 1)`));
                     }
                     const anotherIssuePromise = new Promise(resolve => {
                         page.pptrPage.once('issue', () => {
@@ -155,9 +155,9 @@ describe('console', () => {
                     await page.pptrPage.setContent('<input type="text" name="username" />');
                     await anotherIssuePromise;
                     {
-                        const formattedResponse = await response.handle('test', context);
+                        const formattedResponse = await response.handle(context);
                         const textContent = getTextContent(formattedResponse.content[0]);
-                        assert.ok(textContent.includes(`msgid=2 [issue] An element doesn't have an autocomplete attribute (count: 1)`));
+                        assert.ok(textContent.includes(`msgid=2 [issue] An element doesn’t have an autocomplete attribute (count: 1)`));
                     }
                 });
             });
@@ -173,7 +173,7 @@ describe('console', () => {
                     });
                     const dialog = await dialogPromise;
                     await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
-                    const result = await response.handle('list_console_messages', context);
+                    const result = await response.handle(context);
                     t.assert.snapshot(JSON.stringify(result));
                     await dialog.dismiss();
                 });
@@ -189,13 +189,13 @@ describe('console', () => {
                 // The list is needed to populate the console messages in the context.
                 await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const textContent = getTextContent(formattedResponse.content[0]);
                 assert.ok(textContent.includes('msgid=1 [error] This is an error'), 'Should contain console message body');
             });
         });
         describe('issues type', () => {
-            it.only('gets issue details with node id parsing', async (t) => {
+            it('gets issue details with node id parsing', async (t) => {
                 await withMcpContext(async (response, context) => {
                     const page = context.getSelectedMcpPage();
                     const issuePromise = new Promise(resolve => {
@@ -210,7 +210,7 @@ describe('console', () => {
                     const response2 = new McpResponse({});
                     response2.setPage(context.getSelectedMcpPage());
                     await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response2, context);
-                    const formattedResponse = await response2.handle('test', context);
+                    const formattedResponse = await response2.handle(context);
                     t.assert.snapshot(getTextContent(formattedResponse.content[0]));
                 });
             });
@@ -256,7 +256,7 @@ describe('console', () => {
                     const response2 = new McpResponse({});
                     response2.setPage(context.getSelectedMcpPage());
                     await getConsoleMessage.handler({ params: { msgid: id }, page: context.getSelectedMcpPage() }, response2, context);
-                    const formattedResponse = await response2.handle('test', context);
+                    const formattedResponse = await response2.handle(context);
                     const rawText = getTextContent(formattedResponse.content[0]);
                     const sanitizedText = rawText
                         .replaceAll(/ID: \d+/g, 'ID: <ID>')
@@ -279,7 +279,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.goto(server.getRoute('/index.html'));
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const rawText = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(rawText);
             });
@@ -297,7 +297,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.goto(server.getRoute('/index.html'));
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const rawText = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(rawText);
             });
@@ -315,7 +315,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.goto(server.getRoute('/index.html'));
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const rawText = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(rawText);
             });
@@ -333,7 +333,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.goto(server.getRoute('/index.html'));
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const rawText = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(rawText);
             });
@@ -351,7 +351,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.goto(server.getRoute('/index.html'));
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const rawText = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(rawText);
             });
@@ -383,7 +383,7 @@ describe('console', () => {
                 const page = context.getSelectedMcpPage();
                 await page.pptrPage.goto(server.getRoute('/index.html'));
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const formattedResponse = await response.handle('test', context);
+                const formattedResponse = await response.handle(context);
                 const rawText = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(rawText);
             });
@@ -401,7 +401,7 @@ describe('console', () => {
                 });
                 const dialog = await dialogPromise;
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
-                const result = await response.handle('get_console_message', context);
+                const result = await response.handle(context);
                 t.assert.snapshot(JSON.stringify(stabilizeStructuredContent(result.structuredContent), null, 2));
                 await dialog.dismiss();
             });

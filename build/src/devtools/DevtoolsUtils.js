@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { DevTools } from '../third_party/index.js';
-import { PuppeteerDevToolsConnection } from './DevToolsConnectionAdapter.js';
 import { McpHostBindingAdapter } from './McpHostBindingAdapter.js';
 /**
  * A mock implementation of an issues manager that only implements the methods
@@ -102,8 +101,14 @@ export async function createTargetUniverse(session) {
             settingRegistrations: DevTools.Common.SettingRegistration.getRegisteredSettings(),
         },
         overrideAutoStartModels: new Set([DevTools.DebuggerModel]),
+        hostConfig: {},
+        inspectorFrontendHost: DevTools.Host.InspectorFrontendHost.InspectorFrontendHostInstance,
+        supportsEmulation: false,
     });
-    const connection = new PuppeteerDevToolsConnection(session);
+    const setting = universe.settings.resolve(DevTools.SourceMapManager.lazyLoadingSettingDescriptor);
+    setting.set(true);
+    // @ts-expect-error devtools-frontend has diffrent types.
+    const connection = new DevTools.PuppeteerDevToolsConnection(session);
     const targetManager = universe.context.get(DevTools.TargetManager);
     targetManager.observeModels(DevTools.DebuggerModel, SKIP_ALL_PAUSES);
     targetManager.observeModels(DevTools.NetworkManager.NetworkManager, DISABLE_NETWORK);

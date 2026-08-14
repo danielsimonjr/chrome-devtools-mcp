@@ -2675,8 +2675,11 @@ class FormattedContentBuilder {
     }
     addToken(token, offset) {
         if (this.#enforceSpaceBetweenWords && !this.#hardSpaces && !this.#softSpace) {
-            const lastCharOfLastToken = this.#formattedContent.at(-1)?.at(-1) ?? '';
-            if (this.#canBeIdentifierOrNumber.test(lastCharOfLastToken) && this.#canBeIdentifierOrNumber.test(token)) {
+            const lastToken = this.#formattedContent.at(-1) ?? '';
+            const lastCharOfLastToken = lastToken.at(-1) ?? '';
+            if ((this.#canBeIdentifierOrNumber.test(lastCharOfLastToken) ||
+                ['`', '}', ')', ']', '\'', '"', '/'].includes(lastCharOfLastToken)) &&
+                this.#canBeIdentifierOrNumber.test(token)) {
                 this.addSoftSpace();
             }
         }
@@ -12251,7 +12254,7 @@ function lockedLazyString(str) {
 // Copyright 2014 The Chromium Authors
 const UIStrings$2 = {
     elementsPanel: 'Elements panel',
-    stylesSidebar: 'styles sidebar',
+    stylesSidebar: 'Styles sidebar',
     changesDrawer: 'Changes drawer',
     issuesView: 'Issues view',
     networkPanel: 'Network panel',
@@ -12260,7 +12263,7 @@ const UIStrings$2 = {
     sourcesPanel: 'Sources panel',
     timelinePanel: 'Performance panel',
     memoryInspectorPanel: 'Memory inspector panel',
-    developerResourcesPanel: 'Developer Resources panel',
+    developerResourcesPanel: 'Developer resources panel',
     animationsPanel: 'Animations panel',
     lighthousePanel: 'Lighthouse panel',
 };
@@ -12693,7 +12696,11 @@ class ParsedURL {
             return 'data:';
         }
         const scheme = this.isBlobURL() ? this.blobInnerScheme : this.scheme;
-        return scheme + '://' + this.domain();
+        const domain = this.domain();
+        if (!scheme && !domain) {
+            return '';
+        }
+        return scheme + '://' + domain;
     }
     urlWithoutScheme() {
         if (this.scheme && this.url.startsWith(this.scheme + '://')) {
@@ -13090,7 +13097,6 @@ const UIStrings = {
     extension: 'Extension',
     adorner: 'Adorner',
     account: 'Account',
-    privacy: 'Privacy',
 };
 const str_ = registerUIStrings('core/common/SettingRegistration.ts', UIStrings);
 getLocalizedString.bind(undefined, str_);
@@ -13394,9 +13400,11 @@ class JavaScriptFormatter {
             const format = this.#formatToken(node.parent, token);
             this.#push(token, format);
         }
+        if (node.parent?.type === 'TemplateLiteral' && node.type !== 'TemplateElement' && node.type !== 'TemplateLiteral') {
+            this.#builder.setEnforceSpaceBetweenWords(true);
+        }
     }
     #afterVisit(node) {
-        const restore = this.#builder.setEnforceSpaceBetweenWords(node.type !== 'TemplateElement');
         let token;
         while ((token = this.#tokenizer.peekToken()) && token.start < node.end) {
             const token = this.#tokenizer.nextToken();
@@ -13404,7 +13412,12 @@ class JavaScriptFormatter {
             this.#push(token, format);
         }
         this.#push(null, this.#finishNode(node));
-        this.#builder.setEnforceSpaceBetweenWords(restore || node.type === 'TemplateLiteral');
+        if (node.parent?.type === 'TemplateLiteral' && node.type !== 'TemplateElement' && node.type !== 'TemplateLiteral') {
+            this.#builder.setEnforceSpaceBetweenWords(false);
+        }
+        else if (node.type === 'TemplateLiteral' && node.parent?.type !== 'TemplateLiteral') {
+            this.#builder.setEnforceSpaceBetweenWords(true);
+        }
     }
     #inForLoopHeader(node) {
         const parent = node.parent;
@@ -13922,10 +13935,15 @@ class HTMLFormatter {
         this.#builder.addNewLine();
     }
     #formatToken(element, token) {
-        if (isWhitespace(token.value)) {
+        const isBodyToken = Boolean(element.openTag && !element.openTag.selfClosingTag && element.closeTag &&
+            element.openTag.endOffset <= token.startOffset && token.startOffset < element.closeTag.startOffset);
+        if (isWhitespace(token.value) &&
+            (!isBodyToken || element.children.length > 0 ||
+                (!element.hasContent && !element.hasComments && /[\r\n]/.test(token.value)))) {
             return;
         }
-        if (hasTokenInSet(token.type, 'comment') || hasTokenInSet(token.type, 'meta')) {
+        if ((hasTokenInSet(token.type, 'comment') || hasTokenInSet(token.type, 'meta')) &&
+            (!isBodyToken || element.children.length > 0)) {
             this.#builder.addNewLine();
             this.#builder.addToken(token.value.trim(), token.startOffset);
             this.#builder.addNewLine();
@@ -13934,7 +13952,6 @@ class HTMLFormatter {
         if (!element.openTag || !element.closeTag) {
             return;
         }
-        const isBodyToken = element.openTag.endOffset <= token.startOffset && token.startOffset < element.closeTag.startOffset;
         if (isBodyToken && element.name === 'style') {
             this.#builder.addNewLine();
             this.#builder.increaseNestingLevel();
@@ -13961,7 +13978,13 @@ class HTMLFormatter {
         if (!isBodyToken && hasTokenInSet(token.type, 'attribute')) {
             this.#builder.addSoftSpace();
         }
+        const restore = !isBodyToken && !hasTokenInSet(token.type, 'attribute') ?
+            this.#builder.setEnforceSpaceBetweenWords(false) :
+            false;
         this.#builder.addToken(token.value, token.startOffset);
+        if (!isBodyToken && !hasTokenInSet(token.type, 'attribute')) {
+            this.#builder.setEnforceSpaceBetweenWords(restore);
+        }
     }
 }
 function scriptTagIsJavaScript(element) {
@@ -14047,12 +14070,20 @@ class HTMLModel {
     }
     #build(text) {
         const tokenizer = createTokenizer('text/html');
-        let baseOffset = 0, lastOffset = 0;
+        let lastOffset = 0;
         let pendingToken = null;
         const pushToken = (token) => {
             this.#tokens.push(token);
             this.#updateDOM(token);
             const element = this.#stack[this.#stack.length - 1];
+            if (element && (hasTokenInSet(token.type, 'comment') || hasTokenInSet(token.type, 'meta'))) {
+                element.hasComments = true;
+            }
+            if (element && !isWhitespace(token.value) && !hasTokenInSet(token.type, 'tag') &&
+                !hasTokenInSet(token.type, 'attribute') && !hasTokenInSet(token.type, 'bracket') &&
+                !hasTokenInSet(token.type, 'comment') && !hasTokenInSet(token.type, 'meta')) {
+                element.hasContent = true;
+            }
             if (element && (element.name === 'script' || element.name === 'style') &&
                 element.openTag?.endOffset === lastOffset) {
                 return AbortTokenization;
@@ -14060,8 +14091,6 @@ class HTMLModel {
             return;
         };
         const processToken = (tokenValue, type, tokenStart, tokenEnd) => {
-            tokenStart += baseOffset;
-            tokenEnd += baseOffset;
             lastOffset = tokenEnd;
             const tokenType = type ? new Set(type.split(' ')) : new Set();
             const token = new Token(tokenValue, tokenType, tokenStart, tokenEnd);
@@ -14090,8 +14119,7 @@ class HTMLModel {
             return pushToken(token);
         };
         while (true) {
-            baseOffset = lastOffset;
-            tokenizer(text.substring(lastOffset), processToken);
+            tokenizer(text, processToken, lastOffset);
             if (pendingToken) {
                 pushToken(pendingToken);
                 pendingToken = null;
@@ -14109,7 +14137,8 @@ class HTMLModel {
                     lastOffset = text.length;
                     break;
                 }
-                if (text.substring(lastOffset + 2).toLowerCase().startsWith(element.name)) {
+                const sliced = text.slice(lastOffset + 2, lastOffset + 2 + element.name.length);
+                if (sliced.toLowerCase() === element.name) {
                     break;
                 }
                 lastOffset += 2;
@@ -14323,6 +14352,8 @@ class FormatterElement {
     parent = null;
     openTag = null;
     closeTag = null;
+    hasComments = false;
+    hasContent = false;
     constructor(name) {
         this.name = name;
     }
@@ -14951,8 +14982,12 @@ function createTokenizer(mimeType) {
     if (!mode.token) {
         throw new Error(`Could not find CodeMirror mode with token method: ${mimeType}`);
     }
-    return (line, callback) => {
+    return (line, callback, startOffset = 0) => {
         const stream = new CodeMirror.StringStream(line);
+        if (startOffset) {
+            stream.pos = startOffset;
+            stream.start = startOffset;
+        }
         while (!stream.eol()) {
             const style = mode.token(stream, state);
             const value = stream.current();
@@ -15024,6 +15059,7 @@ class CSSFormatter {
     #fromOffset;
     #lineEndings;
     #lastLine = -1;
+    #currentLineIndex = 0;
     #state = {};
     constructor(builder) {
         this.#builder = builder;
@@ -15034,6 +15070,7 @@ class CSSFormatter {
         this.#toOffset = toOffset;
         this.#state = {};
         this.#lastLine = -1;
+        this.#currentLineIndex = 0;
         const tokenize = createTokenizer('text/css');
         const oldEnforce = this.#builder.setEnforceSpaceBetweenWords(false);
         tokenize(text.substring(this.#fromOffset, this.#toOffset), this.#tokenCallback.bind(this));
@@ -15041,7 +15078,11 @@ class CSSFormatter {
     }
     #tokenCallback(token, type, startPosition) {
         startPosition += this.#fromOffset;
-        const startLine = lowerBound(this.#lineEndings, startPosition, DEFAULT_COMPARATOR);
+        while (this.#currentLineIndex < this.#lineEndings.length &&
+            this.#lineEndings[this.#currentLineIndex] < startPosition) {
+            this.#currentLineIndex++;
+        }
+        const startLine = this.#currentLineIndex;
         if (startLine !== this.#lastLine) {
             this.#state.eatWhitespace = true;
         }

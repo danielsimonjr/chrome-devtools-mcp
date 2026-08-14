@@ -7,7 +7,8 @@ import assert from 'node:assert';
 import { rm, stat, mkdir, chmod, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
+import sinon from 'sinon';
 import { TextSnapshot } from '../../src/TextSnapshot.js';
 import { screenshot } from '../../src/tools/screenshot.js';
 import { screenshots } from '../snapshot.js';
@@ -26,6 +27,9 @@ function pngHeight(data) {
     return data.readUInt32BE(20);
 }
 describe('screenshot', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
     describe('browser_take_screenshot', () => {
         it('with default options', async () => {
             await withMcpContext(async (response, context) => {
@@ -120,6 +124,39 @@ describe('screenshot', () => {
                 assert.equal(response.images.length, 1);
                 assert.equal(response.images[0].mimeType, 'image/png');
                 assert.equal(response.responseLines.at(0), 'Took a screenshot of node with uid "1_1".');
+            });
+        });
+        it('disposes the element handle after an element screenshot', async () => {
+            await withMcpContext(async (response, context) => {
+                const fixture = screenshots.button;
+                const mcpPage = context.getSelectedMcpPage();
+                await mcpPage.pptrPage.setContent(fixture.html);
+                mcpPage.textSnapshot = await TextSnapshot.create(mcpPage);
+                const handle = await mcpPage.getElementByUid('1_1');
+                const disposeSpy = sinon.spy(handle, 'dispose');
+                sinon.stub(mcpPage, 'getElementByUid').resolves(handle);
+                await screenshotTool.handler({
+                    params: { format: 'png', uid: '1_1' },
+                    page: mcpPage,
+                }, response, context);
+                sinon.assert.calledOnce(disposeSpy);
+            });
+        });
+        it('disposes the element handle when the capture fails', async () => {
+            await withMcpContext(async (response, context) => {
+                const fixture = screenshots.button;
+                const mcpPage = context.getSelectedMcpPage();
+                await mcpPage.pptrPage.setContent(fixture.html);
+                mcpPage.textSnapshot = await TextSnapshot.create(mcpPage);
+                const handle = await mcpPage.getElementByUid('1_1');
+                const disposeSpy = sinon.spy(handle, 'dispose');
+                sinon.stub(handle, 'screenshot').rejects(new Error('Capture failed'));
+                sinon.stub(mcpPage, 'getElementByUid').resolves(handle);
+                await assert.rejects(screenshotTool.handler({
+                    params: { format: 'png', uid: '1_1' },
+                    page: mcpPage,
+                }, response, context), /Capture failed/);
+                sinon.assert.calledOnce(disposeSpy);
             });
         });
         it('with filePath', async () => {
@@ -225,6 +262,31 @@ describe('screenshot', () => {
                 assert.equal(pngWidth(buf), 100);
                 // Aspect ratio preserved: 800x600 -> 100x75.
                 assert.equal(pngHeight(buf), 75);
+            });
+        });
+        it('downscales viewport screenshot when no viewport is emulated', async () => {
+            const tool = screenshot({
+                screenshotMaxWidth: 100,
+            });
+            await withMcpContext(async (response, context) => {
+                const page = context.getSelectedMcpPage().pptrPage;
+                // No setViewport call here: the browser is launched and connected with
+                // `defaultViewport: null`, so this is what a page looks like unless the
+                // emulate tool has set a viewport.
+                assert.equal(page.viewport(), null);
+                await page.setContent(html `<div style="width:100vw;height:100vh;background:red"></div>`);
+                const source = await page.evaluate(() => ({
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                }));
+                await tool.handler({ params: { format: 'png' }, page: context.getSelectedMcpPage() }, response, context);
+                assert.equal(response.images.length, 1);
+                const buf = Buffer.from(response.images[0].data, 'base64');
+                assert.equal(pngWidth(buf), 100);
+                // The window size comes from the environment rather than an emulated
+                // viewport, so allow a pixel of rounding slack on the derived height.
+                const expectedHeight = Math.round(source.height * (100 / source.width));
+                assert.ok(Math.abs(pngHeight(buf) - expectedHeight) <= 1, `expected height ~${expectedHeight}, got ${pngHeight(buf)}`);
             });
         });
         it('downscales using the smaller scale when both max-width and max-height are set', async () => {
