@@ -295,6 +295,19 @@ Go to `Cursor Settings` -> `MCP` -> `New MCP Server`. Use the config provided ab
 </details>
 
 <details>
+  <summary>Devin CLI</summary>
+
+**Install via CLI (MCP only)**
+
+Use the Devin CLI to add the Chrome DevTools MCP server (<a href="https://docs.devin.ai/cli/extensibility/mcp/configuration">guide</a>):
+
+```bash
+devin mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
+```
+
+</details>
+
+<details>
   <summary>Factory CLI</summary>
 Use the Factory CLI to add the Chrome DevTools MCP server (<a href="https://docs.factory.ai/cli/configuration/mcp">guide</a>):
 
@@ -524,7 +537,7 @@ If you run into any issues, checkout our [troubleshooting guide](./docs/troubles
   - [`take_snapshot`](docs/tool-reference.md#take_snapshot)
   - [`screencast_start`](docs/tool-reference.md#screencast_start)
   - [`screencast_stop`](docs/tool-reference.md#screencast_stop)
-- **Memory** (11 tools)
+- **Memory** (12 tools)
   - [`take_heapsnapshot`](docs/tool-reference.md#take_heapsnapshot)
   - [`close_heapsnapshot`](docs/tool-reference.md#close_heapsnapshot)
   - [`compare_heapsnapshots`](docs/tool-reference.md#compare_heapsnapshots)
@@ -533,6 +546,7 @@ If you run into any issues, checkout our [troubleshooting guide](./docs/troubles
   - [`get_heapsnapshot_dominators`](docs/tool-reference.md#get_heapsnapshot_dominators)
   - [`get_heapsnapshot_duplicate_strings`](docs/tool-reference.md#get_heapsnapshot_duplicate_strings)
   - [`get_heapsnapshot_edges`](docs/tool-reference.md#get_heapsnapshot_edges)
+  - [`get_heapsnapshot_object_details`](docs/tool-reference.md#get_heapsnapshot_object_details)
   - [`get_heapsnapshot_retainers`](docs/tool-reference.md#get_heapsnapshot_retainers)
   - [`get_heapsnapshot_retaining_paths`](docs/tool-reference.md#get_heapsnapshot_retaining_paths)
   - [`get_heapsnapshot_summary`](docs/tool-reference.md#get_heapsnapshot_summary)
@@ -664,7 +678,7 @@ The Chrome DevTools MCP server supports the following configuration option:
   - **Default:** `false`
 
 - **`--categoryExperimentalWebmcp`/ `--category-experimental-webmcp`**
-  Set to true to enable debugging WebMCP tools. Requires Chrome 149+ with the following flags: `--enable-features=WebMCP,DevToolsWebMCPSupport`
+  Set to true to enable debugging WebMCP tools. Requires Chrome 150+ with the following flag: `--enable-features=WebMCP`
   - **Type:** boolean
   - **Default:** `false`
 
@@ -834,16 +848,19 @@ server instances.
 
 ### User data directory
 
-`chrome-devtools-mcp` starts a Chrome's stable channel instance using the following user
+By default, `chrome-devtools-mcp` starts a Chrome's stable channel instance using the following user
 data directory:
 
-- Linux / macOS: `$HOME/.cache/chrome-devtools-mcp/chrome-profile-$CHANNEL`
-- Windows: `%HOMEPATH%/.cache/chrome-devtools-mcp/chrome-profile-$CHANNEL`
+- Linux / macOS: `$HOME/.cache/chrome-devtools-mcp/chrome-profile`
+- Windows: `%USERPROFILE%\.cache\chrome-devtools-mcp\chrome-profile`
 
-The user data directory is not cleared between runs and shared across
-all instances of `chrome-devtools-mcp`. Set the `isolated` option to `true`
-to use a temporary user data dir instead which will be cleared automatically after
-the browser is closed.
+For non-stable channels, the channel name is appended to the directory name, for example
+`chrome-profile-canary`.
+
+The user data directory is not cleared between runs and is reused for subsequent
+runs with the same channel. Only one browser can use it at a time. Set the `isolated`
+option to `true` to use a temporary user data directory instead which will be cleared
+automatically after the browser is closed.
 
 ### Connecting to a running Chrome instance
 
