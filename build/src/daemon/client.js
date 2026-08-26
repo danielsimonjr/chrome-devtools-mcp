@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import { PipeTransport } from '../third_party/index.js';
 import { getTempFilePath } from '../utils/files.js';
-import { logger } from '../utils/logger.js';
+import { logger, puppeteerLogger } from '../utils/logger.js';
 import { DAEMON_SCRIPT_PATH, getSocketPath, getPidFilePath, isDaemonRunning, } from './utils.js';
 const FILE_TIMEOUT = 10_000;
 const READY_CHECK_INTERVAL = 100;
@@ -116,7 +116,7 @@ export async function sendCommand(command, sessionId, timeout = SEND_COMMAND_TIM
             socket.destroy();
             reject(new Error('Timeout waiting for daemon response'));
         }, timeout);
-        const transport = new PipeTransport(socket, socket);
+        const transport = new PipeTransport(socket, socket, puppeteerLogger);
         transport.onmessage = async (message) => {
             clearTimeout(timer);
             logger?.('onmessage', message);
@@ -165,6 +165,15 @@ export async function verifyDaemonVersion(sessionId, cliVersion) {
 }
 export async function handleResponse(response, format) {
     if (response.isError) {
+        if (format === 'md') {
+            const chunks = [];
+            for (const content of response.content) {
+                if (content.type === 'text') {
+                    chunks.push(content.text);
+                }
+            }
+            return chunks.join(' ');
+        }
         return JSON.stringify(response.content);
     }
     const chunks = [];

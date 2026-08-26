@@ -8,9 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { overrideDevToolsGlobals } from './devtools/DevtoolsUtils.js';
-import { HeapSnapshotManager } from './HeapSnapshotManager.js';
+import { HeapSnapshotManager } from './processors/HeapSnapshotManager.js';
 import { McpPage } from './McpPage.js';
-import { ServiceWorkerConsoleCollector } from './ServiceWorkerCollector.js';
+import { ServiceWorkerConsoleCollector } from './collectors/ServiceWorkerCollector.js';
 import { Locator, } from './third_party/index.js';
 import { listPages } from './tools/pages.js';
 import { CLOSE_PAGE_ERROR } from './tools/ToolDefinition.js';
@@ -137,19 +137,8 @@ export class McpContext {
     }
     async validatePath(filePath) {
         if (filePath === undefined) {
-            return;
+            return undefined;
         }
-        // If the client never negotiated roots and the operator has explicitly
-        // opted into unrestricted access via --allow-unrestricted-paths, restore
-        // the previous permissive behavior and skip validation.
-        if (this.#roots === undefined && this.#allowUnrestrictedPaths) {
-            return;
-        }
-        // roots() always returns at least the temp directory, even if the
-        // connecting client never negotiated the optional `roots` capability.
-        // Path validation must not be skipped just because no workspace roots
-        // were configured.
-        const roots = this.roots();
         let canonicalPath;
         try {
             canonicalPath = await resolveCanonicalPath(filePath);
@@ -159,6 +148,19 @@ export class McpContext {
             console.error(`[MCP Context] Error resolving real path for ${filePath}: ${errMsg}`);
             throw new Error(`Access denied: Cannot resolve base path for ${filePath}.`);
         }
+        // If the client never negotiated roots and the operator has explicitly
+        // opted into unrestricted access via --allow-unrestricted-paths, restore
+        // the previous permissive behavior and skip validation.
+        if (this.#roots === undefined && this.#allowUnrestrictedPaths) {
+            // Canonical path might not exist yet so we fallback to
+            // path.resolve(filePath). Consumers should not follow symlinks.
+            return canonicalPath || path.resolve(filePath);
+        }
+        // roots() always returns at least the temp directory, even if the
+        // connecting client never negotiated the optional `roots` capability.
+        // Path validation must not be skipped just because no workspace roots
+        // were configured.
+        const roots = this.roots();
         let allowed = false;
         const resolvedRoots = await Promise.allSettled(roots.map(async (root) => {
             const rootPathUri = root.uri;
@@ -186,12 +188,12 @@ export class McpContext {
         if (!allowed) {
             throw new Error(`Access denied: path ${filePath} (canonical: ${canonicalPath}) is not within any of the configured workspace roots.`);
         }
+        return canonicalPath || path.resolve(filePath);
     }
     async ensureExtension(filePath, extension) {
-        const resolvedPath = path.resolve(filePath);
-        const currentExtension = path.extname(resolvedPath);
-        const outputPath = `${resolvedPath.slice(0, resolvedPath.length - currentExtension.length)}${extension}`;
-        await this.validatePath(outputPath);
+        const resolved = await this.validatePath(filePath);
+        const currentExtension = path.extname(resolved);
+        const outputPath = `${resolved.slice(0, resolved.length - currentExtension.length)}${extension}`;
         return outputPath;
     }
     async newPage(background, isolatedContextName) {
@@ -226,6 +228,18 @@ export class McpContext {
     get #hasNetworkBlockOrAllowlist() {
         return !!(this.#options.allowList || this.#options.blocklist);
     }
+    installPWA(options) {
+        return this.browser.installPWA(options);
+    }
+    uninstallPWA(options) {
+        return this.browser.uninstallPWA(options);
+    }
+    launchPWA(options) {
+        return this.browser.launchPWA(options);
+    }
+    getPWAState(options) {
+        return this.browser.getPWAState(options);
+    }
     setIsRunningPerformanceTrace(x) {
         this.#isRunningTrace = x;
     }
@@ -253,6 +267,21 @@ export class McpContext {
             throw new Error(`The selected page has been closed. Call ${listPages().name} to see open pages.`);
         }
         return page;
+    }
+    getSelectedMcpPageUrl(page) {
+        let targetPage = page;
+        if (!targetPage) {
+            try {
+                targetPage = this.getSelectedMcpPage();
+            }
+            catch {
+                return undefined;
+            }
+        }
+        if (targetPage?.pptrPage?.isClosed() === false) {
+            return targetPage.pptrPage.url();
+        }
+        return undefined;
     }
     async getDevToolsData(page) {
         const targetPage = page ?? this.#selectedPage;
@@ -359,6 +388,7 @@ export class McpContext {
                 locatorClass: this.#locatorClass,
                 hasNetworkBlockOrAllowlist: this.#hasNetworkBlockOrAllowlist,
                 isolatedContextName: this.#getBrowserContextToNameMap().get(page.browserContext()),
+                navigationTimeout: this.#options.navigationTimeout,
             });
             this.#mcpPages.set(page, mcpPage);
             await mcpPage.init();
@@ -428,16 +458,16 @@ export class McpContext {
         return this.#extensionServiceWorkerMap.get(extensionServiceWorker.target);
     }
     async #writeFile(filepath, data) {
-        await this.validatePath(filepath);
+        const resolved = await this.validatePath(filepath);
         try {
-            await fs.mkdir(path.dirname(filepath), { recursive: true });
+            await fs.mkdir(path.dirname(resolved), { recursive: true });
             // Open the file with flags to:
             // - O_WRONLY: Write-only
             // - O_CREAT: Create if it doesn't exist
             // - O_TRUNC: Truncate to zero length if it exists
             // - O_NOFOLLOW: DO NOT follow symlinks.
             // - 0o600: Permissions: read/write for owner, no permissions for others.
-            await fs.writeFile(filepath, data, {
+            await fs.writeFile(resolved, data, {
                 flag: fs.constants.O_WRONLY |
                     fs.constants.O_CREAT |
                     fs.constants.O_TRUNC |
@@ -502,6 +532,9 @@ export class McpContext {
     async getHeapSnapshotDuplicateStrings(filePath) {
         return await this.#heapSnapshotManager.getDuplicateStrings(filePath);
     }
+    async queryHeapSnapshotObjects(filePath, options) {
+        return await this.#heapSnapshotManager.queryObjects(filePath, options);
+    }
     async getHeapSnapshotStats(filePath) {
         return await this.#heapSnapshotManager.getStats(filePath);
     }
@@ -510,6 +543,9 @@ export class McpContext {
     }
     async getHeapSnapshotNativeContextSizes(filePath) {
         return await this.#heapSnapshotManager.getNativeContextSizes(filePath);
+    }
+    async getHeapSnapshotRetainedByContextSummary(filePath) {
+        return await this.#heapSnapshotManager.getRetainedByContextSummary(filePath);
     }
     async getHeapSnapshotNodesById(filePath, id, filterName, objectId) {
         return await this.#heapSnapshotManager.getNodesById(filePath, id, filterName, objectId);
@@ -569,15 +605,15 @@ export class McpContext {
                 return response.text();
             }
             case 'file:': {
-                await this.validatePath(fileURLToPath(url));
-                return await fs.readFile(url, 'utf-8');
+                const resolved = await this.validatePath(fileURLToPath(url));
+                return await fs.readFile(resolved, 'utf-8');
             }
             default:
                 throw new Error(`Unsupported protocol for: ${url}`);
         }
     }
-    async getHeapSnapshotEdges(filePath, nodeId) {
-        return await this.#heapSnapshotManager.getEdges(filePath, nodeId);
+    async getHeapSnapshotEdges(filePath, nodeId, options) {
+        return await this.#heapSnapshotManager.getEdges(filePath, nodeId, options);
     }
     async getHeapSnapshotClassDiffs(baseFilePath, currentFilePath) {
         return await this.#heapSnapshotManager.getClassDiffs(baseFilePath, currentFilePath);

@@ -102,14 +102,14 @@ export function replaceHtmlElementsWithUids(schema) {
     }
 }
 import { createTargetUniverse, } from './devtools/DevtoolsUtils.js';
-import { ConsoleCollector, NetworkCollector, } from './PageCollector.js';
+import { ConsoleCollector, NetworkCollector, } from './collectors/PageCollector.js';
 import { TextSnapshot } from './TextSnapshot.js';
 import { PredefinedNetworkConditions, } from './third_party/index.js';
 import { takeSnapshot } from './tools/snapshot.js';
 const DEFAULT_TIMEOUT = 5_000;
 const NAVIGATION_TIMEOUT = 10_000;
 import { logger } from './utils/logger.js';
-import { getNetworkMultiplierFromString, WaitForHelper, } from './WaitForHelper.js';
+import { getNetworkMultiplierFromString, WaitForHelper, } from './utils/WaitForHelper.js';
 /**
  * Per-page state wrapper. Consolidates dialog, snapshot, emulation,
  * and metadata that were previously scattered across Maps in McpContext.
@@ -138,9 +138,11 @@ export class McpPage {
     consoleCollector;
     #hasNetworkBlockOrAllowlist;
     #locatorClass;
+    #navigationTimeout;
     constructor(page, id, options) {
         this.#hasNetworkBlockOrAllowlist = options.hasNetworkBlockOrAllowlist;
         this.#locatorClass = options.locatorClass;
+        this.#navigationTimeout = options.navigationTimeout ?? NAVIGATION_TIMEOUT;
         this.pptrPage = page;
         this.id = id;
         this.isolatedContextName = options.isolatedContextName;
@@ -707,7 +709,7 @@ export class McpPage {
         // navigations.
         // Increased in case we throttle the network requests or the CPU
         const networkMultiplier = getNetworkMultiplierFromString(this.networkConditions);
-        this.pptrPage.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT * networkMultiplier * cpuMultiplier);
+        this.pptrPage.setDefaultNavigationTimeout(this.#navigationTimeout * networkMultiplier * cpuMultiplier);
     }
     waitForTextOnPage(text, timeout) {
         const frames = this.pptrPage.frames();

@@ -74,12 +74,19 @@ describe('daemon client', () => {
             };
             assert.strictEqual(await handleResponse(jsonResponse, 'json'), JSON.stringify(jsonResponse.structuredContent));
         });
-        it('handles error response when isError is true', async () => {
+        it('handles error response when isError is true with md format', async () => {
             const errorResponse = {
                 isError: true,
                 content: [{ type: 'text', text: 'Something went wrong' }],
             };
-            assert.strictEqual(await handleResponse(errorResponse, 'md'), JSON.stringify(errorResponse.content));
+            assert.strictEqual(await handleResponse(errorResponse, 'md'), 'Something went wrong');
+        });
+        it('handles error response when isError is true with json format', async () => {
+            const errorResponse = {
+                isError: true,
+                content: [{ type: 'text', text: 'Something went wrong' }],
+            };
+            assert.strictEqual(await handleResponse(errorResponse, 'json'), JSON.stringify(errorResponse.content));
         });
         it('handles text response when json format is requested but no structured content', async () => {
             const textResponse = {

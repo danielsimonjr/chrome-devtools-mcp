@@ -60,22 +60,41 @@ import { ToolCategory } from './categories.js';
 import { definePageTool } from './ToolDefinition.js';
 async function getSourceBox(page, element, fullPage) {
     if (element) {
-        const box = await element.boundingBox();
-        return box ?? undefined;
+        const viewport = page.viewport();
+        const [box, devicePixelRatio] = await Promise.all([
+            element.boundingBox(),
+            viewport
+                ? (viewport.deviceScaleFactor ?? 1)
+                : page.evaluate(() => window.devicePixelRatio),
+        ]);
+        return box ? { ...box, devicePixelRatio } : undefined;
     }
     if (fullPage) {
         const dims = await page.evaluate(() => ({
             width: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth ?? 0),
             height: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0),
+            devicePixelRatio: window.devicePixelRatio,
         }));
         if (dims.width <= 0 || dims.height <= 0) {
             return undefined;
         }
-        return { x: 0, y: 0, width: dims.width, height: dims.height };
+        return {
+            x: 0,
+            y: 0,
+            width: dims.width,
+            height: dims.height,
+            devicePixelRatio: dims.devicePixelRatio,
+        };
     }
     const viewport = page.viewport();
     if (viewport) {
-        return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+        return {
+            x: 0,
+            y: 0,
+            width: viewport.width,
+            height: viewport.height,
+            devicePixelRatio: viewport.deviceScaleFactor ?? 1,
+        };
     }
     // The browser is launched and connected with `defaultViewport: null`, so
     // `page.viewport()` stays null until something emulates one. Fall back to the
@@ -83,21 +102,33 @@ async function getSourceBox(page, element, fullPage) {
     const dims = await page.evaluate(() => ({
         width: window.innerWidth,
         height: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio,
     }));
     if (dims.width <= 0 || dims.height <= 0) {
         return undefined;
     }
-    return { x: 0, y: 0, width: dims.width, height: dims.height };
+    return {
+        x: 0,
+        y: 0,
+        width: dims.width,
+        height: dims.height,
+        devicePixelRatio: dims.devicePixelRatio,
+    };
 }
 function computeDownscaleClip(box, maxWidth, maxHeight) {
-    const widthScale = maxWidth !== undefined ? Math.min(1, maxWidth / box.width) : 1;
-    const heightScale = maxHeight !== undefined ? Math.min(1, maxHeight / box.height) : 1;
+    const widthScale = maxWidth !== undefined
+        ? Math.min(1, maxWidth / (box.width * box.devicePixelRatio))
+        : 1;
+    const heightScale = maxHeight !== undefined
+        ? Math.min(1, maxHeight / (box.height * box.devicePixelRatio))
+        : 1;
     const scale = Math.min(widthScale, heightScale);
     if (scale >= 1) {
         return undefined;
     }
     // Skip degenerate sub-pixel results.
-    if (Math.round(box.width * scale) < 1 || Math.round(box.height * scale) < 1) {
+    if (Math.round(box.width * box.devicePixelRatio * scale) < 1 ||
+        Math.round(box.height * box.devicePixelRatio * scale) < 1) {
         return undefined;
     }
     return {
@@ -144,7 +175,9 @@ export const screenshot = definePageTool(args => {
                 .describe('The absolute path, or a path relative to the current working directory, to save the screenshot to instead of attaching it to the response.'),
         },
         blockedByDialog: true,
-        verifyFilesSchema: ['filePath'],
+        verifyFilesSchema: {
+            filePath: true,
+        },
         handler: async (request, response, context) => {
             const env_1 = { stack: [], error: void 0, hasError: false };
             try {

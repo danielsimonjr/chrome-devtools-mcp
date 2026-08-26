@@ -121,6 +121,17 @@ describe('snapshotFormatter', () => {
                         return null;
                     },
                 },
+                {
+                    id: '1_4',
+                    role: 'slider',
+                    name: 'volume',
+                    valuemin: 0,
+                    valuemax: 100,
+                    children: [],
+                    elementHandle: async () => {
+                        return null;
+                    },
+                },
             ],
             elementHandle: async () => {
                 return null;
@@ -131,6 +142,7 @@ describe('snapshotFormatter', () => {
         assert.strictEqual(formatted, `uid=1_1 root "root"
   uid=1_2 button "button" disableable disabled focusable focused
   uid=1_3 textbox "textbox" value="value"
+  uid=1_4 slider "volume" valuemax="100" valuemin="0"
 `);
     });
     it('formats with DevTools data not included into a snapshot', t => {
@@ -235,6 +247,32 @@ describe('snapshotFormatter', () => {
         });
         const formatted = formatter.toString();
         t.assert.snapshot(formatted);
+    });
+    it('formats a node with role "none" as ignored', () => {
+        const node = {
+            id: '1_1',
+            role: 'none',
+            name: '',
+            children: [
+                {
+                    id: '1_2',
+                    role: 'statictext',
+                    name: 'text',
+                    children: [],
+                    elementHandle: async () => {
+                        return null;
+                    },
+                },
+            ],
+            elementHandle: async () => {
+                return null;
+            },
+        };
+        const formatter = new SnapshotFormatter({ root: node });
+        const formatted = formatter.toString();
+        assert.strictEqual(formatted, `uid=1_1 ignored
+  uid=1_2 statictext "text"
+`);
     });
     it('toJSON returns expected structure', () => {
         const node = {

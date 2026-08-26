@@ -26,7 +26,7 @@ export class TestServer {
         this.#server = http.createServer((req, res) => this.#handle(req, res));
     }
     get baseUrl() {
-        return `http://localhost:${this.#port}`;
+        return `http://127.0.0.1:${this.#port}`;
     }
     getRoute(path) {
         if (!this.#routes[path]) {

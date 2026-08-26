@@ -6,7 +6,6 @@
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import logger from 'debug';
 import puppeteer, { Locator } from 'puppeteer';
 import sinon from 'sinon';
 import { McpContext } from '../src/McpContext.js';
@@ -111,12 +110,14 @@ export async function withMcpContext(cb, options = {}, args = {}) {
         if (context) {
             context.dispose();
         }
-        context = await McpContext.from(browser, logger('test'), {
+        context = await McpContext.from(browser, undefined, {
             experimentalDevToolsDebugging: false,
             performanceCrux: options.performanceCrux ?? true,
             allowList: options.allowedUrlPattern,
             blocklist: options.blockedUrlPattern,
             allowUnrestrictedPaths: options.allowUnrestrictedPaths ?? false,
+            navigationTimeout: options.navigationTimeout ??
+                (process.platform === 'win32' ? 20000 : undefined),
         }, Locator);
         response.setPage(context.getSelectedMcpPage());
         await cb(response, context);
@@ -195,25 +196,28 @@ export function html(strings, ...values) {
 </html>`;
 }
 export function stabilizeStructuredContent(content) {
-    if (typeof content === 'string') {
-        return stabilizeResponseOutput(content);
-    }
-    if (Array.isArray(content)) {
-        return content.map(item => stabilizeStructuredContent(item));
-    }
-    if (typeof content === 'object' && content !== null) {
-        const result = {};
-        for (const [key, value] of Object.entries(content)) {
-            if (key === 'snapshotFilePath' && typeof value === 'string') {
-                result[key] = '<file>';
-            }
-            else {
-                result[key] = stabilizeStructuredContent(value);
-            }
+    const stabilize = (c) => {
+        if (typeof c === 'string') {
+            return stabilizeResponseOutput(c);
         }
-        return result;
-    }
-    return content;
+        if (Array.isArray(c)) {
+            return c.map(item => stabilize(item));
+        }
+        if (typeof c === 'object' && c !== null) {
+            const result = {};
+            for (const [key, value] of Object.entries(c)) {
+                if (key === 'snapshotFilePath' && typeof value === 'string') {
+                    result[key] = '<file>';
+                }
+                else {
+                    result[key] = stabilize(value);
+                }
+            }
+            return result;
+        }
+        return c;
+    };
+    return JSON.stringify(stabilize(content), null, 2);
 }
 export function stabilizeResponseOutput(text) {
     if (typeof text !== 'string') {
@@ -224,6 +228,8 @@ export function stabilizeResponseOutput(text) {
     output = output.replaceAll(dateRegEx, '<long date>');
     const localhostRegEx = /localhost:\d{5}/g;
     output = output.replaceAll(localhostRegEx, 'localhost:<port>');
+    const loopbackAddress = /127.0.0.1:\d{5}/g;
+    output = output.replaceAll(loopbackAddress, '127.0.0.1:<port>');
     const userAgentRegEx = /user-agent:.*\n/g;
     output = output.replaceAll(userAgentRegEx, 'user-agent:<user-agent>\n');
     const chUaRegEx = /sec-ch-ua:"Chromium";v="\d{3}"/g;
@@ -286,9 +292,15 @@ export function getMockPage() {
         },
     };
 }
-export function getMockBrowser() {
+export function getMockBrowser(options) {
     const pages = [getMockPage()];
     return {
+        process() {
+            return options?.process ?? null;
+        },
+        wsEndpoint() {
+            return options?.wsEndpoint ?? '';
+        },
         pages() {
             return Promise.resolve(pages);
         },

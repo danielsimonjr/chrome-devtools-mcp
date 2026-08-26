@@ -266,8 +266,7 @@ describe('NetworkFormatter', () => {
                 ...text.matchAll(/http:\/\/example\.com\/(first|second)/g),
             ].map(m => m[0]);
             const jsonOrder = (json.redirectChain ?? []).map(entry => entry.url);
-            assert.deepStrictEqual(textOrder, jsonOrder, `redirect chain order differs between text (${JSON.stringify(textOrder)}) ` +
-                `and JSON (${JSON.stringify(jsonOrder)})`);
+            assert.deepStrictEqual(textOrder, jsonOrder, `redirect chain order differs between text and JSON`);
         });
         it('shows saved to file message in toStringDetailed', async () => {
             const request = {

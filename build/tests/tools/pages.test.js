@@ -683,7 +683,10 @@ describe('pages', () => {
                 assert.deepStrictEqual(dimensions, [725, 525]);
             });
         });
-        it('resize when window state is fullscreen', async () => {
+        /*
+         * The following test fails after the release of chrome 152.
+         * */
+        it('resize when window state is fullscreen', { skip: process.platform === 'darwin' }, async () => {
             await withMcpContext(async (response, context) => {
                 const page = context.getSelectedMcpPage().pptrPage;
                 const browser = page.browser();
@@ -874,7 +877,7 @@ describe('pages', () => {
                 assert.ok(typeof page._tabId === 'string');
                 // @ts-expect-error _tabId is internal.
                 page._tabId = 'test-tab-id';
-                await getTabId.handler({ params: { pageId: 1 }, page: context.getSelectedMcpPage() }, response, context);
+                await getTabId.handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
                 const result = await response.handle(context);
                 // @ts-expect-error _tabId is internal.
                 assert.strictEqual(result.structuredContent.tabId, 'test-tab-id');

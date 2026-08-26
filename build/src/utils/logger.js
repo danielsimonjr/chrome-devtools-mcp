@@ -4,24 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'node:fs';
-import { debug } from '../third_party/index.js';
+import util from 'node:util';
 const mcpDebugNamespace = 'mcp:log';
-const namespacesToEnable = [
-    mcpDebugNamespace,
-    ...(process.env['DEBUG'] ? [process.env['DEBUG']] : []),
-];
+let logFileStream;
+const _debugLog = util.debuglog(mcpDebugNamespace);
 export function saveLogsToFile(fileName) {
-    // Enable overrides everything so we need to add them
-    debug.enable(namespacesToEnable.join(','));
     const logFile = fs.createWriteStream(fileName, { flags: 'a+' });
-    debug.log = function (...chunks) {
-        logFile.write(`${chunks.join(' ')}\n`);
-    };
     logFile.on('error', function (error) {
         console.error(`Error when opening/writing to log file: ${error.message}`);
         logFile.end();
         process.exit(1);
     });
+    logFileStream = logFile;
     return logFile;
 }
 export function flushLogs(logFile, timeoutMs = 2000) {
@@ -33,5 +27,25 @@ export function flushLogs(logFile, timeoutMs = 2000) {
         });
     });
 }
-export const logger = debug(mcpDebugNamespace);
+export const logger = (...args) => {
+    if (logFileStream) {
+        logFileStream.write(`${new Date().toISOString()} ${mcpDebugNamespace} ${util.format(...args)}\n`);
+    }
+    else if (_debugLog.enabled) {
+        _debugLog('%s %s', new Date().toISOString(), util.format(...args));
+    }
+};
+export const puppeteerLogger = (prefix) => {
+    if (logFileStream) {
+        return (...args) => {
+            logFileStream.write(`${new Date().toISOString()} ${prefix} ${util.format(...args)}\n`);
+        };
+    }
+    const dbg = util.debuglog(prefix);
+    return dbg.enabled
+        ? (...args) => {
+            dbg('%s %s', new Date().toISOString(), util.format(...args));
+        }
+        : undefined;
+};
 //# sourceMappingURL=logger.js.map

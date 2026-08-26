@@ -29,7 +29,7 @@ const FILTERABLE_RESOURCE_TYPES = [
 ];
 export const listNetworkRequests = definePageTool({
     name: 'list_network_requests',
-    description: `Lists the most recent requests for the currently selected page since the last navigation.`,
+    description: `Lists the most recent requests for the target page since the last navigation.`,
     annotations: {
         category: ToolCategory.NETWORK,
         readOnlyHint: true,
@@ -58,7 +58,7 @@ export const listNetworkRequests = definePageTool({
             .describe('Set to true to return the preserved requests over the last 3 navigations.'),
     },
     blockedByDialog: false,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response) => {
         const data = await request.page.getDevToolsData();
         response.attachDevToolsData(data);
@@ -96,7 +96,10 @@ export const getNetworkRequest = definePageTool({
             .describe('The absolute or relative path to a .network-response file to save the response body to. If omitted, the body is returned inline.'),
     },
     blockedByDialog: true,
-    verifyFilesSchema: ['requestFilePath', 'responseFilePath'],
+    verifyFilesSchema: {
+        requestFilePath: true,
+        responseFilePath: true,
+    },
     handler: async (request, response) => {
         if (request.params.reqid) {
             response.attachNetworkRequest(request.params.reqid, {

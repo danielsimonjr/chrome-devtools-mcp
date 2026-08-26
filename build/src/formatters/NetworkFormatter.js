@@ -38,7 +38,7 @@ export class NetworkFormatter {
             const requestBodyNotAvailableMessage = '<Request body not available anymore>';
             if (this.#options.requestFilePath) {
                 if (!this.#options.saveFile) {
-                    throw new Error('saveFile is not provided');
+                    throw new Error('Unable to save the request body to a file: no saveFile callback was configured.');
                 }
                 if (data) {
                     const result = await this.#options.saveFile(Buffer.from(data), this.#options.requestFilePath, '.network-request');
@@ -65,7 +65,7 @@ export class NetworkFormatter {
                 try {
                     const buffer = await response.buffer();
                     if (!this.#options.saveFile) {
-                        throw new Error('saveFile is not provided');
+                        throw new Error('Unable to save the response body to a file: no saveFile callback was configured.');
                     }
                     const result = await this.#options.saveFile(buffer, this.#options.responseFilePath, '.network-response');
                     this.#responseBodyFilePath = result.filename;
@@ -86,7 +86,7 @@ export class NetworkFormatter {
         return convertNetworkRequestConciseToString(this.toJSON());
     }
     toStringDetailed() {
-        return converNetworkRequestDetailedToStringDetailed(this.toJSONDetailed());
+        return convertNetworkRequestDetailedToStringDetailed(this.toJSONDetailed());
     }
     toJSON() {
         return {
@@ -181,19 +181,19 @@ function convertNetworkRequestConciseToString(data) {
     // TODO truncate the URL
     return `reqid=${data.requestId} ${data.method} ${data.url} [${data.status}]${data.selectedInDevToolsUI ? ` [selected in the DevTools Network panel]` : ''}`;
 }
-function formatHeadlers(headers) {
+function formatHeaders(headers) {
     const response = [];
     for (const [name, value] of Object.entries(headers)) {
         response.push(`- ${name}:${value}`);
     }
     return response;
 }
-function converNetworkRequestDetailedToStringDetailed(data) {
+function convertNetworkRequestDetailedToStringDetailed(data) {
     const response = [];
     response.push(`## Request ${data.url}`);
     response.push(`Status: ${data.status}`);
     response.push(`### Request Headers`);
-    for (const line of formatHeadlers(data.requestHeaders)) {
+    for (const line of formatHeaders(data.requestHeaders)) {
         response.push(line);
     }
     if (data.requestBody) {
@@ -206,7 +206,7 @@ function converNetworkRequestDetailedToStringDetailed(data) {
     }
     if (data.responseHeaders) {
         response.push(`### Response Headers`);
-        for (const line of formatHeadlers(data.responseHeaders)) {
+        for (const line of formatHeaders(data.responseHeaders)) {
             response.push(line);
         }
     }

@@ -11,6 +11,7 @@ import { describe, it, afterEach } from 'node:test';
 import sinon from 'sinon';
 import { TextSnapshot } from '../../src/TextSnapshot.js';
 import { screenshot } from '../../src/tools/screenshot.js';
+import { resolveCanonicalPath } from '../../src/utils/files.js';
 import { screenshots } from '../snapshot.js';
 import { html, withMcpContext } from '../utils.js';
 const screenshotTool = screenshot({});
@@ -172,7 +173,8 @@ describe('screenshot', () => {
                     }, response, context);
                     assert.equal(response.images.length, 0);
                     assert.equal(response.responseLines.at(0), "Took a screenshot of the current page's viewport.");
-                    assert.equal(response.responseLines.at(1), `Saved screenshot to ${filePath}.`);
+                    const canonicalFilePath = await resolveCanonicalPath(filePath);
+                    assert.equal(response.responseLines.at(1), `Saved screenshot to ${canonicalFilePath}.`);
                     const stats = await stat(filePath);
                     assert.ok(stats.isFile());
                     assert.ok(stats.size > 0);
@@ -263,6 +265,28 @@ describe('screenshot', () => {
                 // Aspect ratio preserved: 800x600 -> 100x75.
                 assert.equal(pngHeight(buf), 75);
             });
+        });
+        it('honors screenshotMaxWidth at device scale factors above 1', async () => {
+            const tool = screenshot({
+                screenshotMaxWidth: 100,
+            });
+            await withMcpContext(async (response, context) => {
+                const page = context.getSelectedMcpPage().pptrPage;
+                assert.equal(page.viewport(), null);
+                await page.setContent(html `<div style="width:100vw;height:100vh;background:red"></div>`);
+                const source = await page.evaluate(() => ({
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    devicePixelRatio: window.devicePixelRatio,
+                }));
+                assert.equal(source.devicePixelRatio, 2);
+                await tool.handler({ params: { format: 'png' }, page: context.getSelectedMcpPage() }, response, context);
+                assert.equal(response.images.length, 1);
+                const buf = Buffer.from(response.images[0].data, 'base64');
+                assert.equal(pngWidth(buf), 100);
+                const expectedHeight = Math.round(source.height * (100 / source.width));
+                assert.ok(Math.abs(pngHeight(buf) - expectedHeight) <= 1, `expected height ~${expectedHeight}, got ${pngHeight(buf)}`);
+            }, { args: ['--force-device-scale-factor=2'] });
         });
         it('downscales viewport screenshot when no viewport is emulated', async () => {
             const tool = screenshot({

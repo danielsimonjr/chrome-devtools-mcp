@@ -5,7 +5,7 @@
  */
 import zlib from 'node:zlib';
 import { zod, DevTools } from '../third_party/index.js';
-import { parseRawTraceBuffer, traceResultIsSuccess, } from '../trace-processing/parse.js';
+import { parseRawTraceBuffer, traceResultIsSuccess, } from '../processors/PerformanceTrace.js';
 import { logger } from '../utils/logger.js';
 import { ToolCategory } from './categories.js';
 import { definePageTool } from './ToolDefinition.js';
@@ -15,7 +15,7 @@ const filePathSchema = zod
     .describe('The absolute file path, or a file path relative to the current working directory, to save the raw trace data. For example, trace.json.gz (compressed) or trace.json (uncompressed).');
 export const startTrace = definePageTool({
     name: 'performance_start_trace',
-    description: `Start a performance trace on the selected webpage. Use to find frontend performance issues, Core Web Vitals (LCP, INP, CLS), and improve page load speed.`,
+    description: `Start a performance trace on the target webpage. Use to find frontend performance issues, Core Web Vitals (LCP, INP, CLS), and improve page load speed.`,
     annotations: {
         category: ToolCategory.PERFORMANCE,
         readOnlyHint: false,
@@ -24,7 +24,7 @@ export const startTrace = definePageTool({
         reload: zod
             .boolean()
             .default(true)
-            .describe('Determines if, once tracing has started, the current selected page should be automatically reloaded. Navigate the page to the right URL using the navigate_page tool BEFORE starting the trace if reload or autoStop is set to true.'),
+            .describe('Determines if, once tracing has started, the target page should be automatically reloaded. Navigate the page to the right URL using the navigate_page tool BEFORE starting the trace if reload or autoStop is set to true.'),
         autoStop: zod
             .boolean()
             .default(true)
@@ -32,7 +32,9 @@ export const startTrace = definePageTool({
         filePath: filePathSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: ['filePath'],
+    verifyFilesSchema: {
+        filePath: true,
+    },
     handler: async (request, response, context) => {
         if (context.isRunningPerformanceTrace()) {
             response.appendResponseLine('Error: a performance trace is already running. Use performance_stop_trace to stop it. Only one trace can be running at any given time.');
@@ -49,26 +51,12 @@ export const startTrace = definePageTool({
                     waitUntil: 'load',
                 });
             }
-            // Keep in sync with the categories arrays in:
-            // https://source.chromium.org/chromium/chromium/src/+/main:third_party/devtools-frontend/src/front_end/panels/timeline/TimelineController.ts
-            // https://github.com/GoogleChrome/lighthouse/blob/master/lighthouse-core/gather/gatherers/trace.js
             const categories = [
                 '-*',
-                'blink.console',
-                'blink.user_timing',
-                'devtools.timeline',
-                'disabled-by-default-devtools.screenshot',
-                'disabled-by-default-devtools.timeline',
-                'disabled-by-default-devtools.timeline.invalidationTracking',
-                'disabled-by-default-devtools.timeline.frame',
-                'disabled-by-default-devtools.timeline.stack',
-                'disabled-by-default-v8.cpu_profiler',
-                'disabled-by-default-v8.cpu_profiler.hires',
-                'latencyInfo',
-                'loading',
-                'disabled-by-default-lighthouse',
-                'v8.execute',
-                'v8',
+                ...DevTools.TracingDefaultCategories,
+                // These categories are optional in DevTools, but enabled by default in the DevTools UI, so we enable them here too.
+                ...DevTools.TracingOptionalCategories.JsSampling,
+                ...DevTools.TracingOptionalCategories.Screenshot,
             ];
             await page.pptrPage.tracing.start({
                 categories,
@@ -108,7 +96,7 @@ export const startTrace = definePageTool({
 });
 export const stopTrace = definePageTool({
     name: 'performance_stop_trace',
-    description: 'Stop the active performance trace recording on the selected webpage.',
+    description: 'Stop the active performance trace recording on the target webpage.',
     annotations: {
         category: ToolCategory.PERFORMANCE,
         readOnlyHint: false,
@@ -117,7 +105,9 @@ export const stopTrace = definePageTool({
         filePath: filePathSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: ['filePath'],
+    verifyFilesSchema: {
+        filePath: true,
+    },
     handler: async (request, response, context) => {
         if (!context.isRunningPerformanceTrace()) {
             return;
@@ -142,7 +132,7 @@ export const analyzeInsight = definePageTool({
             .describe('The name of the Insight you want more information on. For example: "DocumentLatency" or "LCPBreakdown"'),
     },
     blockedByDialog: false,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response, context) => {
         const lastRecording = context.recordedTraces().at(-1);
         if (!lastRecording) {
