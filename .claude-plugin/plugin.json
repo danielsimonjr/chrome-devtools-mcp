@@ -6,8 +6,7 @@
     "chrome-devtools": {
       "command": "node",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/build/src/bin/chrome-devtools-mcp.js",
-        "--no-page-id-routing"
+        "${CLAUDE_PLUGIN_ROOT}/build/src/bin/chrome-devtools-mcp.js"
       ],
       "env": {
         "_RETRY": "fork-node-launcher-1.8.0"

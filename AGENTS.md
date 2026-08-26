@@ -27,17 +27,21 @@ into a `sync/<version>` branch. Keep fork changes out of `CHANGELOG.md`, because
 release-please generates that file upstream and a fork entry conflicts on every
 sync.
 
-### The launcher pins `--no-page-id-routing`
+### Page-ID routing is ON, which is upstream's default
 
-Upstream 1.8.0 made `pageId` a REQUIRED parameter on page-scoped tools, and the
-default is on. This changed the required parameters of **25 of 29 tools** between
-1.7.0 and 1.8.0. An existing caller that omits `pageId` fails.
+Upstream 1.8.0 routes page-scoped tools by an explicit `pageId`, and makes that
+parameter required. A tool now acts on `getPageById(pageId)` instead of on
+`getSelectedMcpPage()`.
 
-`.claude-plugin/plugin.json` therefore launches the server with
-`--no-page-id-routing`. This flag restores the 1.7.0 contract. One difference
-remains, and no flag controls it: `upload_file` replaced `filePath` with
-`filePaths`.
+Keep this default. The old behaviour reads an implicit "currently selected page",
+which is shared state. When two agent sessions drive one browser, a `select_page`
+in one session silently changes the target of a `click` in the other. Explicit
+routing removes that failure.
 
-Remove the flag to adopt per-page routing. Routing by page ID helps when several
-agent sessions share one browser. Remove it deliberately, because the removal
-changes the contract of 24 tools at once.
+A caller that omits `pageId` gets `-32602 Input validation error`. This costs
+nothing in practice, because callers read the schema at connect time. Only a
+session that already holds the 1.7.0 schema is affected, and a restart clears it.
+
+`--no-page-id-routing` restores the 1.7.0 contract. Use it only to bridge a
+running session. One difference has no flag: `upload_file` replaced `filePath`
+with `filePaths`.
