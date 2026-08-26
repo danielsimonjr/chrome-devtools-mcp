@@ -61,14 +61,23 @@ import { defineTool, pageIdSchema } from './ToolDefinition.js';
 export const evaluateScript = defineTool(cliArgs => {
     return {
         name: 'evaluate_script',
-        description: `Evaluate a JavaScript function inside the currently selected page${cliArgs?.categoryExtensions ? ' or service worker' : ''}. Returns the response as JSON, so returned values have to be JSON-serializable.`,
+        description: `Evaluate a JavaScript function inside the target page${cliArgs?.categoryExtensions ? ' or service worker' : ''}. Returns the response as JSON, so returned values have to be JSON-serializable.`,
         annotations: {
             category: ToolCategory.DEBUGGING,
             readOnlyHint: false,
         },
         schema: {
-            ...(cliArgs?.experimentalPageIdRouting ? pageIdSchema : {}),
-            function: zod.string().describe(`A JavaScript function declaration to be executed by the tool in the currently selected page.
+            ...(cliArgs?.pageIdRouting
+                ? cliArgs.categoryExtensions
+                    ? {
+                        pageId: zod
+                            .number()
+                            .optional()
+                            .describe('Targets a specific page by ID. Required when not evaluating in a service worker.'),
+                    }
+                    : pageIdSchema
+                : {}),
+            function: zod.string().describe(`A JavaScript function declaration to be executed by the tool in the target page.
 Example without arguments: \`() => document.title\` or \`async () => await fetch("example.com")\`.
 Example with arguments: \`(el) => el.innerText\`
 `),
@@ -86,6 +95,10 @@ Example with arguments: \`(el) => el.innerText\`
                 .string()
                 .optional()
                 .describe('Handle dialogs while execution. "accept", "dismiss", or string for response of window.prompt. Defaults to accept.'),
+            waitForStableDom: zod
+                .boolean()
+                .optional()
+                .describe('Whether to wait for the DOM to settle. Pass false if the script only reads data. Defaults to true.'),
             ...(cliArgs?.categoryExtensions
                 ? {
                     serviceWorkerId: zod
@@ -96,11 +109,13 @@ Example with arguments: \`(el) => el.innerText\`
                 : {}),
         },
         blockedByDialog: true,
-        verifyFilesSchema: ['filePath'],
+        verifyFilesSchema: {
+            filePath: true,
+        },
         handler: async (request, response, context) => {
             const env_1 = { stack: [], error: void 0, hasError: false };
             try {
-                const { serviceWorkerId, args: uidArgs, function: fnString, pageId, dialogAction, filePath, } = request.params;
+                const { serviceWorkerId, args: uidArgs, function: fnString, pageId, dialogAction, filePath, waitForStableDom, } = request.params;
                 if (cliArgs?.categoryExtensions && serviceWorkerId) {
                     if (uidArgs && uidArgs.length > 0) {
                         throw new Error('args (element uids) cannot be used when evaluating in a service worker.');
@@ -116,14 +131,19 @@ Example with arguments: \`(el) => el.innerText\`
                             filePath,
                             context,
                         });
-                    }, { handleDialog: dialogAction ?? 'accept' });
+                    }, 
+                    // Service workers cannot interact with the DOM, so never wait for it.
+                    { handleDialog: dialogAction ?? 'accept', waitForStableDom: false });
                     if (result.dialogHandled) {
                         context.getSelectedMcpPage().clearDialog();
                     }
                     response.attachWaitForResult(result);
                     return;
                 }
-                const mcpPage = cliArgs?.experimentalPageIdRouting
+                if (cliArgs?.categoryExtensions && cliArgs?.pageIdRouting && !pageId) {
+                    throw new Error('specify either a pageId or a serviceWorkerId.');
+                }
+                const mcpPage = cliArgs?.pageIdRouting && request.params.pageId
                     ? context.getPageById(request.params.pageId)
                     : context.getSelectedMcpPage();
                 const page = mcpPage.pptrPage;
@@ -142,7 +162,7 @@ Example with arguments: \`(el) => el.innerText\`
                         filePath,
                         context,
                     });
-                }, { handleDialog: dialogAction ?? 'accept' });
+                }, { handleDialog: dialogAction ?? 'accept', waitForStableDom });
                 response.attachWaitForResult(result);
             }
             catch (e_1) {

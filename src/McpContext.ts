@@ -10,24 +10,31 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
 import {overrideDevToolsGlobals} from './devtools/DevtoolsUtils.js';
-import {HeapSnapshotManager} from './HeapSnapshotManager.js';
+import {HeapSnapshotManager} from './processors/HeapSnapshotManager.js';
 import type {
   HeapSnapshotAggregateData,
   HeapSnapshotClassDiff,
   HeapSnapshotDetailedClassDiff,
   DuplicateStringGroup,
-} from './HeapSnapshotManager.js';
+  HeapEdgesQueryOptions,
+  HeapQueryOptions,
+} from './processors/HeapSnapshotManager.js';
 import {McpPage} from './McpPage.js';
-import {type UncaughtError} from './PageCollector.js';
-import {ServiceWorkerConsoleCollector} from './ServiceWorkerCollector.js';
+import {type UncaughtError} from './collectors/PageCollector.js';
+import {ServiceWorkerConsoleCollector} from './collectors/ServiceWorkerCollector.js';
 import {
   Locator,
   type Browser,
   type BrowserContext,
   type ConsoleMessage,
+  type GetPWAStateOptions,
+  type InstallPWAOptions,
+  type LaunchPWAOptions,
   type Page,
+  type PWAState,
   type ScreenRecorder,
   type Target,
+  type UninstallPWAOptions,
   type Extension,
   type Root,
   type DevTools,
@@ -39,7 +46,7 @@ import type {
   DevToolsData,
   SupportedExtensions,
 } from './tools/ToolDefinition.js';
-import type {TraceResult} from './trace-processing/parse.js';
+import type {TraceResult} from './processors/PerformanceTrace.js';
 import type {Logger} from './types.js';
 import type {ExtensionServiceWorker} from './types.js';
 import {getTempFilePath, resolveCanonicalPath} from './utils/files.js';
@@ -61,6 +68,8 @@ interface McpContextOptions {
   // Whether this context replaces a previous one after a browser reconnect.
   // Surfaces a one-time note in the next response.
   reconnected?: boolean;
+  // Custom navigation timeout in milliseconds to override default.
+  navigationTimeout?: number;
 }
 
 // Page ids are handed out from a process-wide counter so they stay unique
@@ -217,21 +226,18 @@ export class McpContext implements Context {
     this.#roots = roots;
   }
 
-  async validatePath(filePath?: string): Promise<void> {
+  /**
+   * Validates that the filePath is allowed according to the roots configuration.
+   * Tolerates if parts of the filePath do not exist yet but the file access to
+   * the resolved should only be allowed without following symlinks.
+   */
+  async validatePath(filePath: string): Promise<string>;
+  async validatePath(filePath?: undefined): Promise<undefined>;
+  async validatePath(filePath?: string): Promise<string | undefined>;
+  async validatePath(filePath?: string): Promise<string | undefined> {
     if (filePath === undefined) {
-      return;
+      return undefined;
     }
-    // If the client never negotiated roots and the operator has explicitly
-    // opted into unrestricted access via --allow-unrestricted-paths, restore
-    // the previous permissive behavior and skip validation.
-    if (this.#roots === undefined && this.#allowUnrestrictedPaths) {
-      return;
-    }
-    // roots() always returns at least the temp directory, even if the
-    // connecting client never negotiated the optional `roots` capability.
-    // Path validation must not be skipped just because no workspace roots
-    // were configured.
-    const roots = this.roots();
 
     let canonicalPath: string;
 
@@ -246,6 +252,20 @@ export class McpContext implements Context {
         `Access denied: Cannot resolve base path for ${filePath}.`,
       );
     }
+
+    // If the client never negotiated roots and the operator has explicitly
+    // opted into unrestricted access via --allow-unrestricted-paths, restore
+    // the previous permissive behavior and skip validation.
+    if (this.#roots === undefined && this.#allowUnrestrictedPaths) {
+      // Canonical path might not exist yet so we fallback to
+      // path.resolve(filePath). Consumers should not follow symlinks.
+      return canonicalPath || path.resolve(filePath);
+    }
+    // roots() always returns at least the temp directory, even if the
+    // connecting client never negotiated the optional `roots` capability.
+    // Path validation must not be skipped just because no workspace roots
+    // were configured.
+    const roots = this.roots();
 
     let allowed = false;
     const resolvedRoots = await Promise.allSettled(
@@ -285,19 +305,20 @@ export class McpContext implements Context {
         `Access denied: path ${filePath} (canonical: ${canonicalPath}) is not within any of the configured workspace roots.`,
       );
     }
+
+    return canonicalPath || path.resolve(filePath);
   }
 
   async ensureExtension<Extension extends `.${string}`>(
     filePath: string,
     extension: Extension,
   ): Promise<`${string}${Extension}`> {
-    const resolvedPath = path.resolve(filePath);
-    const currentExtension = path.extname(resolvedPath);
-    const outputPath: `${string}${Extension}` = `${resolvedPath.slice(
+    const resolved = await this.validatePath(filePath);
+    const currentExtension = path.extname(resolved);
+    const outputPath: `${string}${Extension}` = `${resolved.slice(
       0,
-      resolvedPath.length - currentExtension.length,
+      resolved.length - currentExtension.length,
     )}${extension}`;
-    await this.validatePath(outputPath);
     return outputPath;
   }
 
@@ -337,6 +358,22 @@ export class McpContext implements Context {
     return !!(this.#options.allowList || this.#options.blocklist);
   }
 
+  installPWA(options: InstallPWAOptions): Promise<string> {
+    return this.browser.installPWA(options);
+  }
+
+  uninstallPWA(options: UninstallPWAOptions): Promise<void> {
+    return this.browser.uninstallPWA(options);
+  }
+
+  launchPWA(options: LaunchPWAOptions): Promise<Page> {
+    return this.browser.launchPWA(options);
+  }
+
+  getPWAState(options: GetPWAStateOptions): Promise<PWAState> {
+    return this.browser.getPWAState(options);
+  }
+
   setIsRunningPerformanceTrace(x: boolean): void {
     this.#isRunningTrace = x;
   }
@@ -374,6 +411,21 @@ export class McpContext implements Context {
       );
     }
     return page;
+  }
+
+  getSelectedMcpPageUrl(page?: McpPage): string | undefined {
+    let targetPage = page;
+    if (!targetPage) {
+      try {
+        targetPage = this.getSelectedMcpPage();
+      } catch {
+        return undefined;
+      }
+    }
+    if (targetPage?.pptrPage?.isClosed() === false) {
+      return targetPage.pptrPage.url();
+    }
+    return undefined;
   }
 
   async getDevToolsData(page?: McpPage): Promise<DevToolsData | undefined> {
@@ -503,6 +555,7 @@ export class McpContext implements Context {
         isolatedContextName: this.#getBrowserContextToNameMap().get(
           page.browserContext(),
         ),
+        navigationTimeout: this.#options.navigationTimeout,
       });
       this.#mcpPages.set(page, mcpPage);
       await mcpPage.init();
@@ -599,17 +652,17 @@ export class McpContext implements Context {
     filepath: string,
     data: Uint8Array<ArrayBufferLike>,
   ): Promise<void> {
-    await this.validatePath(filepath);
+    const resolved = await this.validatePath(filepath);
 
     try {
-      await fs.mkdir(path.dirname(filepath), {recursive: true});
+      await fs.mkdir(path.dirname(resolved), {recursive: true});
       // Open the file with flags to:
       // - O_WRONLY: Write-only
       // - O_CREAT: Create if it doesn't exist
       // - O_TRUNC: Truncate to zero length if it exists
       // - O_NOFOLLOW: DO NOT follow symlinks.
       // - 0o600: Permissions: read/write for owner, no permissions for others.
-      await fs.writeFile(filepath, data, {
+      await fs.writeFile(resolved, data, {
         flag:
           fs.constants.O_WRONLY |
           fs.constants.O_CREAT |
@@ -713,6 +766,13 @@ export class McpContext implements Context {
     return await this.#heapSnapshotManager.getDuplicateStrings(filePath);
   }
 
+  async queryHeapSnapshotObjects(
+    filePath: string,
+    options: HeapQueryOptions,
+  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ItemsRange> {
+    return await this.#heapSnapshotManager.queryObjects(filePath, options);
+  }
+
   async getHeapSnapshotStats(
     filePath: string,
   ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.Statistics> {
@@ -729,6 +789,14 @@ export class McpContext implements Context {
     filePath: string,
   ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.NativeContextSizes> {
     return await this.#heapSnapshotManager.getNativeContextSizes(filePath);
+  }
+
+  async getHeapSnapshotRetainedByContextSummary(
+    filePath: string,
+  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainedByContextSummary> {
+    return await this.#heapSnapshotManager.getRetainedByContextSummary(
+      filePath,
+    );
   }
 
   async getHeapSnapshotNodesById(
@@ -833,8 +901,8 @@ export class McpContext implements Context {
       }
 
       case 'file:': {
-        await this.validatePath(fileURLToPath(url));
-        return await fs.readFile(url, 'utf-8');
+        const resolved = await this.validatePath(fileURLToPath(url));
+        return await fs.readFile(resolved, 'utf-8');
       }
 
       default:
@@ -845,8 +913,9 @@ export class McpContext implements Context {
   async getHeapSnapshotEdges(
     filePath: string,
     nodeId: number,
+    options?: HeapEdgesQueryOptions,
   ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ItemsRange> {
-    return await this.#heapSnapshotManager.getEdges(filePath, nodeId);
+    return await this.#heapSnapshotManager.getEdges(filePath, nodeId, options);
   }
 
   async getHeapSnapshotClassDiffs(

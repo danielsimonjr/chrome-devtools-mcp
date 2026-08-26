@@ -33,7 +33,7 @@ export class HeapSnapshotFormatter {
                 lines.push('nodeId,nodeName,type,distance,selfSize,retainedSize');
             }
             else if (isEdgeLike(firstItem)) {
-                lines.push('name,type,nodeId,nodeName');
+                lines.push('name,type,nodeId,nodeName,selfSize,retainedSize');
             }
         }
         for (const item of items) {
@@ -41,7 +41,7 @@ export class HeapSnapshotFormatter {
                 lines.push(`${item.id},${item.name},${item.type},${item.distance},${formatBytesToKb(item.selfSize)},${formatBytesToKb(item.retainedSize)}`);
             }
             else if (isEdgeLike(item)) {
-                lines.push(`${item.name},${item.type},${item.node.id},${item.node.name}`);
+                lines.push(`${item.name},${item.type},${item.node.id},${item.node.name},${formatBytesToKb(item.node.selfSize)},${formatBytesToKb(item.node.retainedSize)}`);
             }
         }
         return lines.join('\n');
@@ -87,6 +87,14 @@ export class HeapSnapshotFormatter {
         }
         lines.push(`Shared Size: ${formatBytesToKb(sizes.sharedSize)}`);
         lines.push(`Unattributed Size: ${formatBytesToKb(sizes.noAttributionSize)}`);
+        return lines.join('\n');
+    }
+    static formatRetainedByContextSummary(summary) {
+        const lines = [];
+        lines.push(`Context count: ${summary.contextCount}`);
+        lines.push(`Retained by context size: ${formatBytesToKb(summary.retainedByContextSize)} (${summary.retainedByContextCount} objects)`);
+        lines.push(`Not retained by context size: ${formatBytesToKb(summary.notRetainedByContextSize)} (${summary.notRetainedByContextCount} objects)`);
+        lines.push(`Total size: ${formatBytesToKb(summary.totalSize)}`);
         return lines.join('\n');
     }
     #getSortedAggregates() {

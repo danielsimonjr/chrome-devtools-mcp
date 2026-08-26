@@ -131,7 +131,7 @@ export const click = definePageTool({
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response) => {
         const env_2 = { stack: [], error: void 0, hasError: false };
         try {
@@ -185,7 +185,7 @@ export const clickAt = definePageTool({
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response) => {
         const page = request.page;
         const result = await page.waitForEventsAfterAction(async () => {
@@ -216,7 +216,7 @@ export const hover = definePageTool({
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response) => {
         const env_3 = { stack: [], error: void 0, hasError: false };
         try {
@@ -262,8 +262,8 @@ async function selectOption(handle, aXNode, value) {
                     try {
                         const childValueHandle = __addDisposableResource(env_5, await childHandle.getProperty('value'), false);
                         const childValue = await childValueHandle.jsonValue();
-                        if (childValue) {
-                            await handle.asLocator().fill(childValue.toString());
+                        if (typeof childValue === 'string') {
+                            await handle.asLocator().fill(childValue);
                         }
                         break;
                     }
@@ -356,7 +356,7 @@ export const fill = definePageTool({
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response, context) => {
         const page = request.page;
         const result = await page.waitForEventsAfterAction(async () => {
@@ -381,7 +381,7 @@ export const typeText = definePageTool({
         submitKey: submitKeySchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response) => {
         const page = request.page;
         const result = await page.waitForEventsAfterAction(async () => {
@@ -407,7 +407,7 @@ export const drag = definePageTool({
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response) => {
         const env_7 = { stack: [], error: void 0, hasError: false };
         try {
@@ -454,7 +454,7 @@ export const fillForm = definePageTool({
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response, context) => {
         const page = request.page;
         let lastResult = {};
@@ -481,18 +481,28 @@ export const uploadFile = definePageTool({
         uid: zod
             .string()
             .describe('The uid of the file input element or an element that will open file chooser on the page from the page content snapshot'),
-        filePath: zod.string().describe('The local path of the file to upload'),
+        filePaths: zod
+            .array(zod.string())
+            .min(1)
+            .describe('One or more files paths to upload. File paths have to be local to the browser instance (not the MCP).'),
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: ['filePath'],
+    // We do not validate file paths for remote browser instances
+    // because they are on the remote host and not accessed by the MCP server.
+    verifyFilesSchema: {
+        filePaths: {
+            local: true,
+            remote: false,
+        },
+    },
     handler: async (request, response) => {
         const env_8 = { stack: [], error: void 0, hasError: false };
         try {
-            const { uid, filePath } = request.params;
+            const { uid, filePaths } = request.params;
             const handle = __addDisposableResource(env_8, (await request.page.getElementByUid(uid)), false);
             try {
-                await handle.uploadFile(filePath);
+                await handle.uploadFile(...filePaths);
             }
             catch {
                 // Some sites use a proxy element to trigger file upload instead of
@@ -503,7 +513,7 @@ export const uploadFile = definePageTool({
                         request.page.pptrPage.waitForFileChooser({ timeout: 3000 }),
                         handle.asLocator().click(),
                     ]);
-                    await fileChooser.accept([filePath]);
+                    await fileChooser.accept(filePaths);
                 }
                 catch {
                     throw new Error(`Failed to upload file. The element could not accept the file directly, and clicking it did not trigger a file chooser.`);
@@ -512,7 +522,7 @@ export const uploadFile = definePageTool({
             if (request.params.includeSnapshot) {
                 response.includeSnapshot();
             }
-            response.appendResponseLine(`File uploaded from ${filePath}.`);
+            response.appendResponseLine(`File uploaded from ${filePaths.join(', ')}.`);
         }
         catch (e_8) {
             env_8.error = e_8;
@@ -537,7 +547,7 @@ export const pressKey = definePageTool({
         includeSnapshot: includeSnapshotSchema,
     },
     blockedByDialog: true,
-    verifyFilesSchema: [],
+    verifyFilesSchema: {},
     handler: async (request, response) => {
         const page = request.page;
         const tokens = parseKey(request.params.key);

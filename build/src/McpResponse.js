@@ -8,11 +8,11 @@ import { HeapSnapshotFormatter, isEdgeLike, isNodeLike, } from './formatters/Hea
 import { IssueFormatter } from './formatters/IssueFormatter.js';
 import { NetworkFormatter } from './formatters/NetworkFormatter.js';
 import { SnapshotFormatter } from './formatters/SnapshotFormatter.js';
-import { UncaughtError } from './PageCollector.js';
+import { UncaughtError } from './collectors/PageCollector.js';
 import { TextSnapshot } from './TextSnapshot.js';
 import { DevTools, getToonEncode, getGcfEncode } from './third_party/index.js';
 import { handleDialog, listPages } from './tools/pages.js';
-import { getInsightOutput, getTraceSummary } from './trace-processing/parse.js';
+import { getInsightOutput, getTraceSummary, } from './processors/PerformanceTrace.js';
 import { stableIdSymbol } from './utils/id.js';
 import { paginate } from './utils/pagination.js';
 const { formatBytesToKb } = DevTools.I18n.ByteUtilities;
@@ -122,6 +122,7 @@ export class McpResponse {
                 : undefined,
             types: options?.types,
             includePreservedMessages: options?.includePreservedMessages,
+            includeStackTraces: options?.includeStackTraces,
             serviceWorkerId: options?.serviceWorkerId,
         };
     }
@@ -195,13 +196,14 @@ export class McpResponse {
             pagination: options,
         };
     }
-    setHeapSnapshotStats(stats, staticData, nativeContextSizes) {
+    setHeapSnapshotStats(stats, staticData, nativeContextSizes, retainedByContextSummary) {
         this.#heapSnapshotOptions = {
             ...this.#heapSnapshotOptions,
             include: true,
             stats,
             staticData,
             nativeContextSizes,
+            retainedByContextSummary,
         };
     }
     setHeapSnapshotNodes(nodes, options) {
@@ -394,6 +396,7 @@ export class McpResponse {
                 return await ConsoleFormatter.from(consoleMessage, {
                     id: consoleMessageStableId,
                     fetchDetailedData: false,
+                    fetchStackTrace: this.#consoleDataOptions?.includeStackTraces,
                     devTools: page ? page.devtoolsUniverse : undefined,
                 });
             }
@@ -649,7 +652,11 @@ Call ${handleDialog.name} to handle it before continuing.`);
                 for (const [insightName, model] of Object.entries(insightSet.model)) {
                     structuredContent.traceInsights.push({
                         insightName,
-                        insightKey: model.insightKey,
+                        insightKey: typeof model === 'object' &&
+                            model !== null &&
+                            'insightKey' in model
+                            ? model.insightKey
+                            : undefined,
                     });
                 }
             }
@@ -716,6 +723,14 @@ Call ${handleDialog.name} to handle it before continuing.`);
                 response.push(HeapSnapshotFormatter.formatNativeContextSizes(nativeContextSizes));
                 structuredContent.heapSnapshot = structuredContent.heapSnapshot || {};
                 structuredContent.heapSnapshot.nativeContextSizes = nativeContextSizes;
+            }
+            const retainedByContextSummary = this.#heapSnapshotOptions.retainedByContextSummary;
+            if (retainedByContextSummary) {
+                response.push('### Retained by Context Summary');
+                response.push(HeapSnapshotFormatter.formatRetainedByContextSummary(retainedByContextSummary));
+                structuredContent.heapSnapshot = structuredContent.heapSnapshot || {};
+                structuredContent.heapSnapshot.retainedByContextSummary =
+                    retainedByContextSummary;
             }
             const aggregateData = this.#heapSnapshotOptions.aggregateData;
             if (aggregateData) {
@@ -915,6 +930,9 @@ Call ${handleDialog.name} to handle it before continuing.`);
                 }
                 else {
                     response.push(...paginationData.items.map(item => item.toString()));
+                }
+                if (structuredContent.consoleMessages.some(message => 'stackTrace' in message)) {
+                    response.push('Note: stack trace line and column numbers use 1-based indexing');
                 }
             }
             else {

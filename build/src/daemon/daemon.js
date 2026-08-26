@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { Client, PipeTransport, StdioClientTransport, } from '../third_party/index.js';
-import { logger } from '../utils/logger.js';
+import { logger, puppeteerLogger } from '../utils/logger.js';
 import { VERSION } from '../version.js';
 import { DAEMON_CLIENT_NAME, getPidFilePath, getSocketPath, INDEX_SCRIPT_PATH, IS_WINDOWS, isDaemonRunning, assertValidSessionId, } from './utils.js';
 const sessionId = process.env.CHROME_DEVTOOLS_MCP_SESSION_ID || '';
@@ -174,7 +174,7 @@ async function startSocketServer() {
     }
     return await new Promise((resolve, reject) => {
         server = createServer(socket => {
-            const transport = new PipeTransport(socket, socket);
+            const transport = new PipeTransport(socket, socket, puppeteerLogger);
             transport.onmessage = async (message) => {
                 logger?.('onmessage', message);
                 const response = await handleRequest(JSON.parse(message));

@@ -13,7 +13,7 @@ import { StdioServerTransport } from '../third_party/index.js';
 import { checkForUpdates } from '../utils/check-for-updates.js';
 import { logger, saveLogsToFile } from '../utils/logger.js';
 import { VERSION } from '../version.js';
-import { cliOptions, parseArguments } from './chrome-devtools-mcp-cli-options.js';
+import { mcpOptions, parseArguments } from '../config/mcp-options.js';
 await checkForUpdates('Run `npm install chrome-devtools-mcp@latest` to update.');
 export const args = parseArguments(VERSION);
 const logFile = args.logFile ? saveLogsToFile(args.logFile) : undefined;
@@ -68,5 +68,5 @@ await server.connect(transport);
 logger?.('Chrome DevTools MCP Server connected');
 logDisclaimers(args);
 void ClearcutLogger.get()?.logDailyActiveIfNeeded();
-void ClearcutLogger.get()?.logServerStart(computeFlagUsage(args, cliOptions));
+void ClearcutLogger.get()?.logServerStart(computeFlagUsage(args, mcpOptions));
 //# sourceMappingURL=chrome-devtools-mcp-main.js.map

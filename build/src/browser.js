@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { puppeteer } from './third_party/index.js';
-import { logger } from './utils/logger.js';
+import { logger, puppeteerLogger } from './utils/logger.js';
 let browser;
 let browserMode;
 function makeTargetFilter(enableExtensions = false) {
@@ -43,6 +43,7 @@ export async function ensureBrowserConnected(options) {
         handleDevToolsAsPage: true,
         blocklist: options.blocklist,
         allowlist: options.allowlist,
+        logger: puppeteerLogger,
     };
     let autoConnect = false;
     if (options.wsEndpoint) {
@@ -178,6 +179,7 @@ export async function launch(options) {
             enableExtensions: options.enableExtensions,
             blocklist: options.blocklist,
             allowlist: options.allowlist,
+            logger: puppeteerLogger,
         });
         if (options.logFile) {
             // FIXME: we are probably subscribing too late to catch startup logs. We

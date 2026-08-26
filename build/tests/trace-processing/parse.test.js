@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { getTraceSummary, parseRawTraceBuffer, } from '../../src/trace-processing/parse.js';
+import { getTraceSummary, parseRawTraceBuffer, } from '../../src/processors/PerformanceTrace.js';
 import { loadTraceAsBuffer } from './fixtures/load.js';
 describe('Trace parsing', async () => {
     it('can parse a Uint8Array from Tracing.stop())', async () => {

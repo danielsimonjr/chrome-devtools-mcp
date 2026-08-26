@@ -5661,15 +5661,21 @@ class HeapSnapshotWorkerProxy extends ObjectWrapper {
     }
     evaluateForTest(script, callback) {
         const callId = this.nextCallId++;
-        this.callbacks.set(callId, callback);
+        this.callbacks.set(callId, (error, result) => {
+            callback(error, result);
+        });
         this.postMessage({ callId, disposition: 'evaluateForTest', source: script });
     }
     callFactoryMethod(callback, objectId, methodName, proxyConstructor, transfer, ...methodArguments) {
         const callId = this.nextCallId++;
         const newObjectId = this.nextObjectId++;
         if (callback) {
-            this.callbacks.set(callId, remoteResult => {
-                callback(remoteResult ? new proxyConstructor(this, newObjectId) : null);
+            this.callbacks.set(callId, (error, remoteResult) => {
+                if (error) {
+                    callback(error);
+                    return;
+                }
+                callback(undefined, remoteResult ? new proxyConstructor(this, newObjectId) : undefined);
             });
             this.postMessage({
                 callId,
@@ -5694,7 +5700,9 @@ class HeapSnapshotWorkerProxy extends ObjectWrapper {
     callMethod(callback, objectId, methodName, ...methodArguments) {
         const callId = this.nextCallId++;
         if (callback) {
-            this.callbacks.set(callId, callback);
+            this.callbacks.set(callId, (error, result) => {
+                callback(error, result);
+            });
         }
         this.postMessage({
             callId,
@@ -5725,8 +5733,15 @@ class HeapSnapshotWorkerProxy extends ObjectWrapper {
     }
     setupForSecondaryInit(port) {
         const callId = this.nextCallId++;
-        const done = new Promise(resolve => {
-            this.callbacks.set(callId, resolve);
+        const done = new Promise((resolve, reject) => {
+            this.callbacks.set(callId, error => {
+                if (error) {
+                    reject(new Error(error));
+                }
+                else {
+                    resolve();
+                }
+            });
         });
         this.postMessage({
             callId,
@@ -5746,15 +5761,17 @@ class HeapSnapshotWorkerProxy extends ObjectWrapper {
         if (data.error) {
             this.#console.error(`An error occurred when a call to method '${data.errorMethodName}' was requested`);
             this.#console.error(data['errorCallStack']);
-            this.callbacks.delete(data.callId);
-            return;
         }
         const callback = this.callbacks.get(data.callId);
         if (!callback) {
             return;
         }
         this.callbacks.delete(data.callId);
-        callback(data.result);
+        if (data.error) {
+            callback(data.error);
+            return;
+        }
+        callback(undefined, data.result);
     }
     postMessage(message, transfer) {
         this.worker.postMessage(message, transfer);
@@ -5774,10 +5791,27 @@ class HeapSnapshotProxyObject {
         return this.worker.callFactoryMethod(null, String(this.objectId), methodName, proxyConstructor, [], ...args);
     }
     callFactoryMethodPromise(methodName, proxyConstructor, transfer, ...args) {
-        return new Promise(resolve => this.worker.callFactoryMethod(resolve, String(this.objectId), methodName, proxyConstructor, transfer, ...args));
+        return new Promise((resolve, reject) => this.worker.callFactoryMethod((error, result) => {
+            if (error) {
+                reject(new Error(error));
+            }
+            else if (result) {
+                resolve(result);
+            }
+            else {
+                reject(new Error(`Failed to create ${proxyConstructor.name}`));
+            }
+        }, String(this.objectId), methodName, proxyConstructor, transfer, ...args));
     }
     callMethodPromise(methodName, ...args) {
-        return new Promise(resolve => this.worker.callMethod(resolve, String(this.objectId), methodName, ...args));
+        return new Promise((resolve, reject) => this.worker.callMethod((error, result) => {
+            if (error) {
+                reject(new Error(error));
+            }
+            else {
+                resolve(result);
+            }
+        }, String(this.objectId), methodName, ...args));
     }
 }
 class HeapSnapshotLoaderProxy extends HeapSnapshotProxyObject {
@@ -5796,12 +5830,16 @@ class HeapSnapshotLoaderProxy extends HeapSnapshotProxyObject {
         const secondWorker = new HeapSnapshotWorkerProxy(() => { }, this.worker.console, this.worker.workerUrl);
         const channel = new MessageChannel();
         await secondWorker.setupForSecondaryInit(channel.port2);
-        const snapshotProxy = await this.callFactoryMethodPromise('buildSnapshot', HeapSnapshotProxy, [channel.port1]);
-        secondWorker.dispose();
-        this.dispose();
-        snapshotProxy.setProfileUid(this.profileUid);
-        await snapshotProxy.updateStaticData();
-        this.snapshotReceivedCallback(snapshotProxy);
+        try {
+            const snapshotProxy = await this.callFactoryMethodPromise('buildSnapshot', HeapSnapshotProxy, [channel.port1]);
+            snapshotProxy.setProfileUid(this.profileUid);
+            await snapshotProxy.updateStaticData();
+            this.snapshotReceivedCallback(snapshotProxy);
+        }
+        finally {
+            secondWorker.dispose();
+            this.dispose();
+        }
     }
 }
 class HeapSnapshotProxy extends HeapSnapshotProxyObject {
@@ -5819,6 +5857,9 @@ class HeapSnapshotProxy extends HeapSnapshotProxyObject {
     }
     getNativeContextSizes() {
         return this.callMethodPromise('getNativeContextSizes');
+    }
+    getRetainedByContextSummary() {
+        return this.callMethodPromise('getRetainedByContextSummary');
     }
     aggregatesWithFilter(filter) {
         return this.callMethodPromise('aggregatesWithFilter', filter);
@@ -5841,8 +5882,8 @@ class HeapSnapshotProxy extends HeapSnapshotProxyObject {
     getObjectInfo(nodeIndex) {
         return this.callMethodPromise('getObjectInfo', nodeIndex);
     }
-    createEdgesProvider(nodeIndex) {
-        return this.callFactoryMethod('createEdgesProvider', HeapSnapshotProviderProxy, nodeIndex);
+    createEdgesProvider(nodeIndex, options) {
+        return this.callFactoryMethod('createEdgesProvider', HeapSnapshotProviderProxy, nodeIndex, options);
     }
     createRetainingEdgesProvider(nodeIndex) {
         return this.callFactoryMethod('createRetainingEdgesProvider', HeapSnapshotProviderProxy, nodeIndex);
@@ -5858,6 +5899,9 @@ class HeapSnapshotProxy extends HeapSnapshotProxyObject {
     }
     createNodesProviderForClass(classKey, nodeFilter) {
         return this.callFactoryMethod('createNodesProviderForClass', HeapSnapshotProviderProxy, classKey, nodeFilter);
+    }
+    queryObjects(queryOptions) {
+        return this.callFactoryMethod('queryObjects', HeapSnapshotProviderProxy, queryOptions);
     }
     allocationTracesTops() {
         return this.callMethodPromise('allocationTracesTops');
@@ -6586,21 +6630,10 @@ class HeapSnapshotNode {
         return false;
     }
     #detachednessAndClassIndex() {
-        const { snapshot, nodeIndex } = this;
-        const nodeDetachednessAndClassIndexOffset = snapshot.nodeDetachednessAndClassIndexOffset;
-        return nodeDetachednessAndClassIndexOffset !== -1 ?
-            snapshot.nodes.getValue(nodeIndex + nodeDetachednessAndClassIndexOffset) :
-            snapshot.detachednessAndClassIndexArray[nodeIndex / snapshot.nodeFieldCount];
+        return this.snapshot.detachednessAndClassIndexArray[this.nodeIndex / this.snapshot.nodeFieldCount];
     }
     #setDetachednessAndClassIndex(value) {
-        const { snapshot, nodeIndex } = this;
-        const nodeDetachednessAndClassIndexOffset = snapshot.nodeDetachednessAndClassIndexOffset;
-        if (nodeDetachednessAndClassIndexOffset !== -1) {
-            snapshot.nodes.setValue(nodeIndex + nodeDetachednessAndClassIndexOffset, value);
-        }
-        else {
-            snapshot.detachednessAndClassIndexArray[nodeIndex / snapshot.nodeFieldCount] = value;
-        }
+        this.snapshot.detachednessAndClassIndexArray[this.nodeIndex / this.snapshot.nodeFieldCount] = value;
     }
     detachedness() {
         return this.#detachednessAndClassIndex() & BITMASK_FOR_DOM_LINK_STATE;
@@ -6995,6 +7028,7 @@ class HeapSnapshot {
         this.#progress.updateStatus('Building retainers…');
         const resultsFromSecondWorker = this.startInitStep1InSecondThread(secondWorker);
         this.#progress.updateStatus('Propagating DOM state…');
+        this.initDetachednessAndClassIndex();
         this.propagateDOMState();
         this.#progress.updateStatus('Calculating node flags…');
         this.calculateFlags();
@@ -8030,9 +8064,6 @@ class HeapSnapshot {
     }
     calculateObjectNames() {
         const { nodes, nodeCount, nodeNameOffset, nodeNativeType, nodeHiddenType, nodeObjectType, nodeCodeType, nodeClosureType, nodeRegExpType, } = this;
-        if (this.nodeDetachednessAndClassIndexOffset === -1) {
-            this.detachednessAndClassIndexArray = new Uint32Array(nodeCount);
-        }
         const stringTable = new Map();
         const getIndexForString = (s) => {
             let index = stringTable.get(s);
@@ -8243,6 +8274,43 @@ class HeapSnapshot {
     getNativeContextSizes() {
         return this.#nativeContextSizes;
     }
+    getRetainedByContextSummary() {
+        const isRetainedByContext = this.createNamedFilter('objectsRetainedByContexts');
+        let contextCount = 0;
+        let retainedByContextSize = 0;
+        let retainedByContextCount = 0;
+        let notRetainedByContextSize = 0;
+        let notRetainedByContextCount = 0;
+        const node = this.rootNode();
+        const { nodes, nodeFieldCount, nodeSelfSizeOffset: selfSizeOffset } = this;
+        const nodesLength = nodes.length;
+        for (let nodeIndex = 0; nodeIndex < nodesLength; nodeIndex += nodeFieldCount) {
+            const selfSize = nodes.getValue(nodeIndex + selfSizeOffset);
+            if (!selfSize) {
+                continue;
+            }
+            node.nodeIndex = nodeIndex;
+            if (isRetainedByContext(node)) {
+                retainedByContextCount++;
+                retainedByContextSize += selfSize;
+            }
+            else {
+                notRetainedByContextCount++;
+                notRetainedByContextSize += selfSize;
+            }
+            if (this.isContextObject(node)) {
+                contextCount++;
+            }
+        }
+        return {
+            contextCount,
+            retainedByContextSize,
+            retainedByContextCount,
+            notRetainedByContextSize,
+            notRetainedByContextCount,
+            totalSize: retainedByContextSize + notRetainedByContextSize,
+        };
+    }
     nodeNativeContext(nodeIndex) {
         const ordinal = nodeIndex / this.nodeFieldCount;
         const nativeContextOrdinal = this.nodeNativeContextAttribution[ordinal];
@@ -8430,6 +8498,28 @@ class HeapSnapshot {
             }
         }
         return null;
+    }
+    initDetachednessAndClassIndex() {
+        this.detachednessAndClassIndexArray = new Uint32Array(this.nodeCount);
+        if (this.nodeDetachednessAndClassIndexOffset !== -1) {
+            const { nodeFieldCount, nodeDetachednessAndClassIndexOffset: offset } = this;
+            for (let i = 0; i < this.nodeCount; ++i) {
+                this.detachednessAndClassIndexArray[i] = Number(this.nodes.getValue(i * nodeFieldCount + offset));
+            }
+        }
+        else {
+            const node = this.rootNode();
+            const nodesLength = this.nodes.length;
+            const { nodeFieldCount, nodeNativeType, nodeTypeOffset } = this;
+            for (let nodeIndex = 0; nodeIndex < nodesLength; nodeIndex += nodeFieldCount) {
+                if (this.nodes.getValue(nodeIndex + nodeTypeOffset) === nodeNativeType) {
+                    node.nodeIndex = nodeIndex;
+                    if (node.name().startsWith('Detached ')) {
+                        node.setDetachedness(2 );
+                    }
+                }
+            }
+        }
     }
     propagateDOMState() {
         if (this.nodeDetachednessAndClassIndexOffset === -1) {
@@ -8658,11 +8748,54 @@ class HeapSnapshot {
         }
         return null;
     }
-    createEdgesProvider(nodeIndex) {
+    createEdgesProvider(nodeIndex, options) {
         const node = this.createNode(nodeIndex);
-        const filter = this.containmentEdgesFilter();
+        const defaultFilter = this.containmentEdgesFilter();
+        const minRetainedSize = options?.minRetainedSize;
+        const excludePrimitives = options?.excludePrimitives ?? false;
+        let filter = defaultFilter;
+        if (minRetainedSize !== undefined || excludePrimitives) {
+            filter = (edge) => {
+                if (defaultFilter && !defaultFilter(edge)) {
+                    return false;
+                }
+                const targetNode = edge.node();
+                if (minRetainedSize !== undefined && targetNode.retainedSize() < minRetainedSize) {
+                    return false;
+                }
+                if (excludePrimitives) {
+                    const rawType = targetNode.rawType();
+                    if (rawType === this.nodeNumberType) {
+                        return false;
+                    }
+                    if (rawType === this.nodeNativeType) {
+                        const targetName = targetNode.rawName();
+                        if (targetName === 'undefined' || targetName === 'null' || targetName === 'true' ||
+                            targetName === 'false') {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            };
+        }
         const indexProvider = new HeapSnapshotEdgeIndexProvider(this);
-        return new HeapSnapshotEdgesProvider(this, filter, node.edges(), indexProvider);
+        const provider = new HeapSnapshotEdgesProvider(this, filter, node.edges(), indexProvider);
+        if (options?.sortBy) {
+            const sortBy = options.sortBy;
+            let comparator;
+            if (sortBy === 'selfSize') {
+                comparator = new ComparatorConfig('selfSize', false, '!edgeName', true);
+            }
+            else if (sortBy === 'name') {
+                comparator = new ComparatorConfig('!edgeName', true, 'retainedSize', false);
+            }
+            else {
+                comparator = new ComparatorConfig('retainedSize', false, '!edgeName', true);
+            }
+            provider.sortAndRewind(comparator);
+        }
+        return provider;
     }
     createEdgesProviderForTest(nodeIndex, filter) {
         const node = this.createNode(nodeIndex);
@@ -8818,6 +8951,85 @@ class HeapSnapshot {
     }
     createNodesProviderForClass(classKey, nodeFilter) {
         return new HeapSnapshotNodesProvider(this, this.aggregatesWithFilter(nodeFilter)[classKey].idxs);
+    }
+    queryObjects(queryOptions) {
+        const { nodes, nodeFieldCount, retainedSizes } = this;
+        const nodesLength = nodes.length;
+        const matchingIndexes = [];
+        const classNamePattern = queryOptions.className ? new RegExp(queryOptions.className, 'i') : null;
+        const propertyNamePattern = queryOptions.propertyName ? new RegExp(queryOptions.propertyName, 'i') : null;
+        const targetNodeType = queryOptions.nodeType ? queryOptions.nodeType.toLowerCase() : null;
+        const node = this.rootNode();
+        for (let nodeIndex = 0, ordinal = 0; nodeIndex < nodesLength; nodeIndex += nodeFieldCount, ordinal++) {
+            node.nodeIndex = nodeIndex;
+            if (queryOptions.minSelfSize !== undefined && node.selfSize() < queryOptions.minSelfSize) {
+                continue;
+            }
+            if (queryOptions.maxSelfSize !== undefined && node.selfSize() > queryOptions.maxSelfSize) {
+                continue;
+            }
+            const retainedSize = retainedSizes[ordinal];
+            if (queryOptions.minRetainedSize !== undefined && retainedSize < queryOptions.minRetainedSize) {
+                continue;
+            }
+            if (queryOptions.maxRetainedSize !== undefined && retainedSize > queryOptions.maxRetainedSize) {
+                continue;
+            }
+            if (queryOptions.isDetached !== undefined) {
+                const isDetached = node.detachedness() === 2 ;
+                if (isDetached !== queryOptions.isDetached) {
+                    continue;
+                }
+            }
+            if (classNamePattern) {
+                const name = node.name();
+                if (!classNamePattern.test(name)) {
+                    continue;
+                }
+            }
+            if (targetNodeType) {
+                const typeStr = node.type();
+                if (typeStr.toLowerCase() !== targetNodeType) {
+                    continue;
+                }
+            }
+            if (propertyNamePattern) {
+                let propMatch = false;
+                for (const iter = node.edges(); iter.hasNext(); iter.next()) {
+                    if (propertyNamePattern.test(iter.edge.name())) {
+                        propMatch = true;
+                        break;
+                    }
+                }
+                if (!propMatch) {
+                    continue;
+                }
+            }
+            matchingIndexes.push(nodeIndex);
+        }
+        const sortBy = queryOptions.sortBy ?? 'retainedSize';
+        if (sortBy === 'retainedSize') {
+            matchingIndexes.sort((a, b) => retainedSizes[b / nodeFieldCount] - retainedSizes[a / nodeFieldCount]);
+        }
+        else if (sortBy === 'selfSize') {
+            matchingIndexes.sort((a, b) => {
+                node.nodeIndex = b;
+                const sizeB = node.selfSize();
+                node.nodeIndex = a;
+                const sizeA = node.selfSize();
+                return sizeB - sizeA;
+            });
+        }
+        else if (sortBy === 'id') {
+            matchingIndexes.sort((a, b) => {
+                node.nodeIndex = b;
+                const idB = node.id();
+                node.nodeIndex = a;
+                const idA = node.id();
+                return idA - idB;
+            });
+        }
+        return new HeapSnapshotNodesProvider(this, matchingIndexes);
     }
     maxJsNodeId() {
         const nodeFieldCount = this.nodeFieldCount;
@@ -9326,7 +9538,7 @@ class JSHeapSnapshot extends HeapSnapshot {
                 continue;
             }
             node.nodeIndex = nodeIndex;
-            if (node.name().startsWith('Detached ')) {
+            if (node.detachedness() === 2 ) {
                 this.flags[ordinal] |= flag;
             }
         }
@@ -9895,6 +10107,7 @@ class HeapSnapshotLoader {
         this.#dataCallback = null;
         this.#done = false;
         this.parsingComplete = this.#parseInput();
+        this.parsingComplete.catch(() => { });
     }
     dispose() {
         this.#reset();
@@ -9907,6 +10120,7 @@ class HeapSnapshotLoader {
         this.#done = true;
         if (this.#dataCallback) {
             this.#dataCallback('');
+            this.#dataCallback = null;
         }
     }
     async buildSnapshot(secondWorker) {
@@ -9974,6 +10188,9 @@ class HeapSnapshotLoader {
         this.#snapshot.strings = JSON.parse(this.#json);
     }
     write(chunk) {
+        if (!chunk) {
+            return;
+        }
         this.#buffer.push(chunk);
         if (!this.#dataCallback) {
             return;
@@ -9984,6 +10201,9 @@ class HeapSnapshotLoader {
     #fetchChunk() {
         if (this.#buffer.length > 0) {
             return Promise.resolve(this.#buffer.shift());
+        }
+        if (this.#done) {
+            return Promise.resolve('');
         }
         const { promise, resolve } = Promise.withResolvers();
         this.#dataCallback = resolve;
@@ -9996,7 +10216,11 @@ class HeapSnapshotLoader {
                 return pos;
             }
             startIndex = this.#json.length - token.length + 1;
-            this.#json += await this.#fetchChunk();
+            const chunk = await this.#fetchChunk();
+            if (!chunk) {
+                throw new Error(`Token ${token} not found (unexpected end of input)`);
+            }
+            this.#json += chunk;
         }
     }
     async #parseArray(name, title, length) {
@@ -10013,7 +10237,11 @@ class HeapSnapshotLoader {
             else {
                 this.#progress.updateStatus(title);
             }
-            this.#json += await this.#fetchChunk();
+            const chunk = await this.#fetchChunk();
+            if (!chunk) {
+                throw new Error(`Unexpected end of input while ${title}`);
+            }
+            this.#json += chunk;
         }
         const result = this.#array;
         this.#array = null;
@@ -10036,7 +10264,11 @@ class HeapSnapshotLoader {
         });
         jsonTokenizer.write(json);
         while (!jsonTokenizerDone) {
-            jsonTokenizer.write(await this.#fetchChunk());
+            const chunk = await this.#fetchChunk();
+            if (!chunk) {
+                throw new Error('Unexpected end of input while loading snapshot info');
+            }
+            jsonTokenizer.write(chunk);
         }
         this.#snapshot = this.#snapshot || {};
         const nodes = await this.#parseArray('"nodes"', 'Loading nodes… {PH1}%', this.#snapshot.snapshot.meta.node_fields.length * this.#snapshot.snapshot.node_count);

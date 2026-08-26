@@ -13,7 +13,7 @@ import { DevTools } from '../../src/third_party/index.js';
 import { getConsoleMessage, listConsoleMessages, } from '../../src/tools/console.js';
 import { installExtension } from '../../src/tools/extensions.js';
 import { serverHooks } from '../server.js';
-import { getTextContent, withMcpContext, stabilizeStructuredContent, extractExtensionId, assertNoServiceWorkerReported, waitExecutionFor, } from '../utils.js';
+import { getTextContent, withMcpContext, stabilizeStructuredContent, extractExtensionId, assertNoServiceWorkerReported, waitExecutionFor, stabilizeResponseOutput, } from '../utils.js';
 const EXTENSION_LOGGING_PATH = path.join(import.meta.dirname, '../../../tests/tools/fixtures/extension-logging');
 describe('console', () => {
     before(async () => {
@@ -100,6 +100,35 @@ describe('console', () => {
                 const formattedResponse = await response.handle(context);
                 const textContent = getTextContent(formattedResponse.content[0]);
                 t.assert.snapshot(textContent);
+            });
+        });
+        it('includes stack traces when includeStackTraces is set', async () => {
+            await withMcpContext(async (response, context) => {
+                const page = context.getSelectedMcpPage();
+                await page.pptrPage.setContent('<script>function failingFn() { console.error("This is an error"); } failingFn();</script>');
+                await listConsoleMessages().handler({
+                    params: { includeStackTraces: true },
+                    page: context.getSelectedMcpPage(),
+                }, response, context);
+                const formattedResponse = await response.handle(context);
+                const textContent = getTextContent(formattedResponse.content[0]);
+                assert.ok(textContent.includes('msgid=1 [error] This is an error'));
+                assert.match(textContent, /at failingFn/);
+                const structuredContent = formattedResponse.structuredContent;
+                assert.match(structuredContent.consoleMessages[0].stackTrace ?? '', /at failingFn/);
+            });
+        });
+        it('omits stack traces by default', async () => {
+            await withMcpContext(async (response, context) => {
+                const page = context.getSelectedMcpPage();
+                await page.pptrPage.setContent('<script>function failingFn() { console.error("This is an error"); } failingFn();</script>');
+                await listConsoleMessages().handler({ params: {}, page: context.getSelectedMcpPage() }, response, context);
+                const formattedResponse = await response.handle(context);
+                const textContent = getTextContent(formattedResponse.content[0]);
+                assert.ok(textContent.includes('msgid=1 [error] This is an error'));
+                assert.ok(!textContent.includes('at failingFn'));
+                const structuredContent = formattedResponse.structuredContent;
+                assert.strictEqual(structuredContent.consoleMessages[0].stackTrace, undefined);
             });
         });
         it('work with primitive unhandled errors', async () => {
@@ -258,11 +287,9 @@ describe('console', () => {
                     await getConsoleMessage.handler({ params: { msgid: id }, page: context.getSelectedMcpPage() }, response2, context);
                     const formattedResponse = await response2.handle(context);
                     const rawText = getTextContent(formattedResponse.content[0]);
-                    const sanitizedText = rawText
+                    t.assert.snapshot(stabilizeResponseOutput(rawText
                         .replaceAll(/ID: \d+/g, 'ID: <ID>')
-                        .replaceAll(/reqid=\d+/g, 'reqid=<reqid>')
-                        .replaceAll(/localhost:\d+/g, 'hostname:port');
-                    t.assert.snapshot(sanitizedText);
+                        .replaceAll(/reqid=\d+/g, 'reqid=<reqid>')));
                 });
             });
         });
@@ -402,7 +429,7 @@ describe('console', () => {
                 const dialog = await dialogPromise;
                 await getConsoleMessage.handler({ params: { msgid: 1 }, page: context.getSelectedMcpPage() }, response, context);
                 const result = await response.handle(context);
-                t.assert.snapshot(JSON.stringify(stabilizeStructuredContent(result.structuredContent), null, 2));
+                t.assert.snapshot(stabilizeStructuredContent(result.structuredContent));
                 await dialog.dismiss();
             });
         });
