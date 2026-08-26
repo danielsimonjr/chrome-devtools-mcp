@@ -7,7 +7,7 @@
 import type {YargsOptions} from '../third_party/index.js';
 import {yargs, hideBin} from '../third_party/index.js';
 
-export const cliOptions = {
+export const mcpOptions = {
   autoConnect: {
     type: 'boolean',
     description:
@@ -147,10 +147,11 @@ export const cliOptions = {
     type: 'boolean',
     description: `If enabled, ignores errors relative to self-signed and expired certificates. Use with caution.`,
   },
-  experimentalPageIdRouting: {
+  pageIdRouting: {
     type: 'boolean',
     describe:
-      'Whether to expose pageId on page-scoped tools and route requests by page ID (useful for concurrent agent sessions).',
+      'Require pageId on page-scoped tools and route requests by page ID (useful for concurrent agent sessions). Use --no-page-id-routing to disable.',
+    default: true,
   },
   experimentalDevtools: {
     type: 'boolean',
@@ -163,11 +164,13 @@ export const cliOptions = {
   },
   memoryDebugging: {
     type: 'boolean',
+    default: false,
     describe: 'Whether to enable memory debugging tools.',
     alias: 'experimentalMemory',
   },
   experimentalStructuredContent: {
     type: 'boolean',
+    default: false,
     describe: 'Whether to output structured formatted content.',
   },
   experimentalToonFormat: {
@@ -257,6 +260,13 @@ export const cliOptions = {
     default: false,
     describe:
       'Set to true to enable third-party developer tools exposed by the inspected page itself',
+  },
+  categoryPwa: {
+    type: 'boolean',
+    hidden: false,
+    conflicts: ['autoConnect', 'browserUrl', 'wsEndpoint'],
+    describe:
+      'Set to true to include tools for automating Progressive Web Apps (install, launch, uninstall, and OS state). This feature is only supported with a pipe connection; autoConnect, browserUrl, and wsEndpoint are not supported.',
   },
   performanceCrux: {
     type: 'boolean',
@@ -369,14 +379,64 @@ export const cliOptions = {
 
 export type ParsedArguments = ReturnType<typeof parseArguments>;
 
-export function parseArguments(
+export function getMcpOptionsForViaCli(): typeof mcpOptions {
+  if (!('default' in mcpOptions.headless)) {
+    throw new Error('headless cli option unexpectedly does not have a default');
+  }
+  if (!('default' in mcpOptions.experimentalStructuredContent)) {
+    throw new Error(
+      'experimentalStructuredContent cli option unexpectedly does not have a default',
+    );
+  }
+  if ('default' in mcpOptions.isolated) {
+    throw new Error('isolated cli option unexpectedly has a default');
+  }
+
+  return {
+    ...mcpOptions,
+    headless: {
+      ...mcpOptions.headless,
+      default: true,
+    },
+    memoryDebugging: {
+      ...mcpOptions.memoryDebugging,
+      default: true,
+    },
+    categoryExtensions: {
+      ...mcpOptions.categoryExtensions,
+      default: true,
+    },
+    experimentalStructuredContent: {
+      ...mcpOptions.experimentalStructuredContent,
+      default: true,
+    },
+    isolated: {
+      ...mcpOptions.isolated,
+      description:
+        'If specified, creates a temporary user-data-dir that is automatically cleaned up after the browser is closed. Defaults to true unless userDataDir is provided.',
+    },
+  };
+}
+
+/**
+ * Exported only for testing to not trigger process exit.
+ */
+export function parser(
   version: string,
   argv = process.argv,
   env = process.env,
 ) {
+  const isViaCli = argv.includes('--viaCli') || argv.includes('--via-cli');
+  const options = isViaCli ? getMcpOptionsForViaCli() : mcpOptions;
+
   const yargsInstance = yargs(hideBin(argv))
     .scriptName('npx chrome-devtools-mcp@latest')
-    .options(cliOptions)
+    .parserConfiguration({
+      'strip-aliased': true,
+      'strip-dashed': true,
+    })
+    .options(options)
+    .showHelpOnFail(false, 'Specify --help for available options')
     .middleware(args => {
       // We can't set default in the options else
       // Yargs will complain
@@ -393,6 +453,23 @@ export function parseArguments(
           "turning off usage statistics. process.env['CI'] || process.env['CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS'] is set.",
         );
         args.usageStatistics = false;
+      }
+
+      const cliOptionsAllowedArgs = [
+        ...Object.keys(options),
+        // Yargs populated with positional args
+        '_',
+        '$0',
+      ];
+
+      const unknownArgs = Object.keys(args).filter(
+        arg => !cliOptionsAllowedArgs.includes(arg),
+      );
+
+      if (unknownArgs.length > 0) {
+        console.error(
+          `Unknown arguments: ${unknownArgs.map(arg => `--${arg}`)}`,
+        );
       }
     })
     .example([
@@ -461,6 +538,13 @@ export function parseArguments(
   return yargsInstance
     .wrap(Math.min(120, yargsInstance.terminalWidth()))
     .help()
-    .version(version)
-    .parseSync();
+    .version(version);
+}
+
+export function parseArguments(
+  version: string,
+  argv = process.argv,
+  env = process.env,
+) {
+  return parser(version, argv, env).parseSync();
 }
