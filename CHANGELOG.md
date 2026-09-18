@@ -3,6 +3,9 @@
 ## Unreleased (fork)
 
 ### Changed
+- Launch the server with `--no-usage-statistics`, in both the root and `plugin/` manifests, so this
+  fork does not send usage statistics to Google (upstream's default is on). Verified by the server's
+  own startup notice: present without the flag, absent with it.
 
 - Point this fork's marketplace entry at `./plugin` instead of `./`. The plugin directory holds only
   the manifest, the rollup bundle (`build/src`) and `skills/` - 14 MB against a whole-repo install of
