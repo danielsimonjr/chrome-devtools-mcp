@@ -151,3 +151,6 @@ log.txt
 .DS_Store
 
 mcp-heap-profiles/
+
+# Fork: plugin/ ships the bundled runtime for git-subdir installs.
+!plugin/build/

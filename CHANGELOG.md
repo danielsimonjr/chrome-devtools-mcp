@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] (fork)
+
+### Changed
+
+- **Fork: the Claude Code plugin now lives in `plugin/`.** The marketplace entry used
+  `source: "./"`, so an install cloned the whole repo (about 2.8 GB with `.git`,
+  `third_party/` and `node_modules/`) and the cache held a second full copy (1.5 GB).
+  `plugin/` holds only `.claude-plugin/plugin.json`, the bundled runtime
+  (`plugin/build/src`, 14 MB, no source maps) and `skills/`. It has no
+  `package.json`, because the rollup bundle has no runtime dependencies.
+  Use a `git-subdir` marketplace entry with `path: "plugin"`.
+- `npm run plugin:sync` (new, `scripts/sync-plugin-dir.ts`) refreshes `plugin/` from
+  `build/src` and `skills/`. Run it after `npm run bundle`.
+- Verified from a copy of `plugin/` with every non-built-in `require` and `import`
+  denied: `initialize` reports 1.8.1, `tools/list` returns 29 tools, and
+  `new_page` (about:blank) plus `list_pages` succeed against headless Chrome.
+- Version 1.8.1 (package.json, `src/version.ts`, both `.claude-plugin` manifests).
+  The root `.claude-plugin/plugin.json` still works for a `./` install.
+
 ## [1.8.0](https://github.com/ChromeDevTools/chrome-devtools-mcp/compare/chrome-devtools-mcp-v1.7.0...chrome-devtools-mcp-v1.8.0) (2026-08-25)
 
 
