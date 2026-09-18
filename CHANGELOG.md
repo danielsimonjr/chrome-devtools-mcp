@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (fork)
+
+### Changed
+
+- Point this fork's marketplace entry at `./plugin` instead of `./`. The plugin directory holds only
+  the manifest, the rollup bundle (`build/src`) and `skills/` - 14 MB against a whole-repo install of
+  roughly 1.5 GB per cached version (plus a 2.8 GB marketplace clone). Verified: the bundle runs with
+  no `node_modules` under a loader that denies every non-builtin import, answers with 29 tools, and a
+  real `new_page` / `list_pages` call drives headless Chrome.
+
 ## [Unreleased] (fork)
 
 ### Changed
